@@ -35,3 +35,10 @@ jump_agent-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Ignore secret configuration files
+/config/*.secret.exs
+
+# Ignore environment files
+.env
+.env.*
+!.env.example

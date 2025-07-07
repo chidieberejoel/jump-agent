@@ -65,6 +65,16 @@ config :jump_agent, JumpAgentWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :jump_agent, dev_routes: true
 
+config :ueberauth, Ueberauth.Strategy.Google.OAuth,
+  client_id: System.get_env("GOOGLE_CLIENT_ID"),
+  client_secret: System.get_env("GOOGLE_CLIENT_SECRET")
+
+# Token encryption key - generate with: :crypto.strong_rand_bytes(32) |> Base.encode64()
+# Example key (DO NOT USE IN PRODUCTION):
+config :jump_agent, :token_encryption_key,
+  System.get_env("TOKEN_ENCRYPTION_KEY") ||
+  Base.decode64!("QE3RmNXk9ooICesIbmwN2Ixy1bJMTKstE8UuDo+9Crc=")
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
 

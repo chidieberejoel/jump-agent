@@ -65,6 +65,28 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
+  # Configure Google OAuth
+  config :ueberauth, Ueberauth.Strategy.Google.OAuth,
+     client_id: System.get_env("GOOGLE_CLIENT_ID") ||
+       raise("""
+       environment variable GOOGLE_CLIENT_ID is missing.
+       You can get it from Google Cloud Console.
+       """),
+     client_secret: System.get_env("GOOGLE_CLIENT_SECRET") ||
+       raise("""
+       environment variable GOOGLE_CLIENT_SECRET is missing.
+       You can get it from Google Cloud Console.
+       """)
+
+  # Configure token encryption
+  token_key = System.get_env("TOKEN_ENCRYPTION_KEY") ||
+    raise("""
+    environment variable TOKEN_ENCRYPTION_KEY is missing.
+    Generate one with: :crypto.strong_rand_bytes(32) |> Base.encode64()
+    """)
+
+  config :jump_agent, :token_encryption_key, Base.decode64!(token_key)
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

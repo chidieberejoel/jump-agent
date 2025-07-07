@@ -61,6 +61,16 @@ config :logger, :console,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# Configure Ueberauth
+config :ueberauth, Ueberauth,
+  providers: [
+   google: {Ueberauth.Strategy.Google, [
+     default_scope: "email profile https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar",
+     access_type: "offline",
+     prompt: "consent"
+   ]}
+  ]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
