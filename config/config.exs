@@ -9,7 +9,7 @@ import Config
 
 config :jump_agent,
   ecto_repos: [JumpAgent.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime, binary_id: true]
 
 # Configures the endpoint
 config :jump_agent, JumpAgentWeb.Endpoint,

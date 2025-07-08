@@ -6,7 +6,7 @@ defmodule JumpAgentWeb.Plugs.Auth do
   alias JumpAgent.Accounts
 
   def fetch_current_user(conn, _opts) do
-    with user_id when not is_nil(user_id) <- get_session(conn, :user_id),
+    with user_id when is_binary(user_id) <- get_session(conn, :user_id),
          %Accounts.User{} = user <- Accounts.get_user(user_id) do
       assign(conn, :current_user, user)
     else

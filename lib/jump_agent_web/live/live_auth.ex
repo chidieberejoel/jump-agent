@@ -31,7 +31,7 @@ defmodule JumpAgentWeb.LiveAuth do
 
   defp assign_current_user(socket, session) do
     case session do
-      %{"user_id" => user_id} when is_integer(user_id) or is_binary(user_id) ->
+      %{"user_id" => user_id} when is_binary(user_id) ->
         case Accounts.get_user(user_id) do
           nil ->
             Logger.warning("User #{user_id} not found in database")

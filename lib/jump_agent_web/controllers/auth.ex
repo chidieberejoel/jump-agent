@@ -75,7 +75,7 @@ defmodule JumpAgentWeb.AuthController do
 
         case token_result do
           {:ok, _user} ->
-            Logger.info("User #{user.email} logged in successfully")
+            Logger.info("User #{user.email} (#{user.id}) logged in successfully")
 
             conn
             |> put_session(:user_id, user.id)

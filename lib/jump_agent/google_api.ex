@@ -69,7 +69,7 @@ defmodule JumpAgent.GoogleAPI do
     # Check if token is expired and refresh if needed
     user =
       if Accounts.token_expired?(user) do
-        Logger.info("Token expired for user #{user.id}, attempting refresh")
+        Logger.info("Token expired for user #{user.id} (#{user.email}), attempting refresh")
 
         case refresh_token(user) do
           {:ok, refreshed_user} -> refreshed_user
@@ -103,7 +103,7 @@ defmodule JumpAgent.GoogleAPI do
           {:ok, Jason.decode!(response_body)}
 
         {:ok, %Finch.Response{status: 401, body: response_body}} when retry_count < 1 ->
-          Logger.warning("Got 401, attempting token refresh for user #{user.id}")
+          Logger.warning("Got 401, attempting token refresh for user #{user.id} (#{user.email})")
 
           case refresh_token(user) do
             {:ok, refreshed_user} ->
@@ -189,7 +189,7 @@ defmodule JumpAgent.GoogleAPI do
                  expires_at
                ) do
             {:ok, updated_user} ->
-              Logger.info("Successfully refreshed token for user #{user.id}")
+              Logger.info("Successfully refreshed token for user #{user.id} (#{user.email})")
               {:ok, updated_user}
 
             {:error, changeset} ->

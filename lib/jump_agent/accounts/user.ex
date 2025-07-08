@@ -1,6 +1,5 @@
 defmodule JumpAgent.Accounts.User do
-  use Ecto.Schema
-  import Ecto.Changeset
+  use JumpAgent.Schema
 
   schema "users" do
     field :email, :string
@@ -12,7 +11,7 @@ defmodule JumpAgent.Accounts.User do
     field :google_token_expires_at, :utc_datetime
     field :last_login_at, :utc_datetime
 
-    timestamps(type: :utc_datetime)
+    timestamps()
   end
 
   @doc false
