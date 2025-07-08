@@ -11,7 +11,7 @@ defmodule JumpAgent.AI.Agent do
   # Use a valid OpenAI model
   @openai_model "gpt-4-turbo"
   @system_prompt """
-  You are an intelligent assistant for managing professional relationships and communications.
+  You are an intelligent assistant for financial advisors and communications.
   You have access to the user's Gmail, Google Calendar, and HubSpot CRM.
 
   Your capabilities include:
