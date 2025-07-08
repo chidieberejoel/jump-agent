@@ -15,13 +15,6 @@ defmodule JumpAgentWeb.HubSpotController do
     "sales-email-read"
   ]
 
-  # TODO; Revert
-#  @optional_scopes [
-#    "crm.objects.companies.read",
-#    "crm.objects.deals.read",
-#    "crm.schemas.contacts.read"
-#  ]
-
   @optional_scopes []
 
   def connect(conn, _params) do
