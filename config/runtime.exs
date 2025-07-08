@@ -87,6 +87,19 @@ if config_env() == :prod do
 
   config :jump_agent, :token_encryption_key, Base.decode64!(token_key)
 
+  # Configure HubSpot OAuth
+  config :jump_agent,
+    hubspot_client_id: System.get_env("HUBSPOT_CLIENT_ID") ||
+      raise("""
+      environment variable HUBSPOT_CLIENT_ID is missing.
+      You can get it from HubSpot App Settings.
+      """),
+    hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET") ||
+      raise("""
+      environment variable HUBSPOT_CLIENT_SECRET is missing.
+      You can get it from HubSpot App Settings.
+      """)
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

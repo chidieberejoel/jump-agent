@@ -47,6 +47,15 @@ defmodule JumpAgentWeb.Router do
     end
   end
 
+  # HubSpot OAuth routes (require authentication)
+  scope "/hubspot", JumpAgentWeb do
+    pipe_through [:browser, :require_auth]
+
+    get "/connect", HubSpotController, :connect
+    get "/callback", HubSpotController, :callback
+    delete "/disconnect", HubSpotController, :disconnect
+  end
+
   scope "/", JumpAgentWeb do
     pipe_through [:browser, :require_auth]
 
