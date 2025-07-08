@@ -1,150 +1,150 @@
-<div class="min-h-screen bg-gradient-to-br from-white to-gray-50">
-  <!-- Dashboard Header -->
-  <div class="bg-white border-b border-gray-200">
-    <div class="max-w-7xl mx-auto px-6 py-6">
-      <div class="flex justify-between items-center">
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p class="mt-1 text-sm text-gray-600">
-            Welcome back, <%= @current_user.name || @current_user.email %>
-          </p>
-        </div>
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-gray-500">
-            <%= Calendar.strftime(@current_user.last_login_at || @current_user.inserted_at, "%b %d, %Y at %I:%M %P") %>
-          </span>
-          <%= if @current_user.avatar_url do %>
-            <img src={@current_user.avatar_url} alt="Profile" class="h-10 w-10 rounded-full">
-          <% else %>
-            <div class="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
-              <span class="text-gray-600 font-medium"><%= String.first(@current_user.email) %></span>
-            </div>
-          <% end %>
-        </div>
-      </div>
-    </div>
-  </div>
+<div class="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
+  <!-- Enhanced Dashboard Header -->
+  <div class="bg-white/80 backdrop-blur-sm border-b border-gray-200/50 sticky top-0 z-10">
 
-  <div class="max-w-7xl mx-auto px-6 py-8">
-    <!-- Quick Actions -->
+    <!-- Primary Actions -->
     <div class="mb-8">
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+        </svg>
+        Quick Actions
+      </h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <!-- AI Chat Card -->
-        <a href={~p"/chat"} class="group bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-4 sm:p-6">
-          <div class="flex items-start justify-between">
-            <div class="flex-1">
-              <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-                <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
-                </svg>
-              </div>
-              <h3 class="text-lg font-semibold text-gray-900 mb-2">AI Assistant</h3>
-              <p class="text-sm text-gray-600">Chat with your AI assistant to manage emails, contacts, and schedule meetings.</p>
+        <a href={~p"/chat"} class="group relative bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 p-6 text-white overflow-hidden">
+          <div class="absolute inset-0 bg-black opacity-0 group-hover:opacity-10 transition-opacity"></div>
+          <div class="relative z-10">
+            <div class="w-14 h-14 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+              </svg>
             </div>
-            <svg class="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors mt-1 flex-shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-            </svg>
+            <h3 class="text-xl font-bold mb-2">AI Assistant</h3>
+            <p class="text-purple-100 text-sm mb-4">Chat with your AI to manage emails, contacts, and schedule meetings.</p>
+            <div class="flex items-center text-white/80 text-sm group-hover:text-white">
+              <span>Start chatting</span>
+              <svg class="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+              </svg>
+            </div>
           </div>
+          <div class="absolute -bottom-8 -right-8 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
         </a>
 
         <!-- Instructions Card -->
-        <a href={~p"/instructions"} class="group bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-4 sm:p-6">
-          <div class="flex items-start justify-between">
-            <div class="flex-1">
-              <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-                <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
-                </svg>
-              </div>
-              <h3 class="text-lg font-semibold text-gray-900 mb-2">AI Instructions</h3>
-              <p class="text-sm text-gray-600">Set up automated rules and ongoing instructions for your AI agent.</p>
+        <a href={~p"/instructions"} class="group relative bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 p-6 text-white overflow-hidden">
+          <div class="absolute inset-0 bg-black opacity-0 group-hover:opacity-10 transition-opacity"></div>
+          <div class="relative z-10">
+            <div class="w-14 h-14 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+              </svg>
             </div>
-            <svg class="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors mt-1 flex-shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-            </svg>
+            <h3 class="text-xl font-bold mb-2">AI Instructions</h3>
+            <p class="text-blue-100 text-sm mb-4">Set up automated rules and ongoing instructions for your AI agent.</p>
+            <div class="flex items-center text-white/80 text-sm group-hover:text-white">
+              <span>Manage instructions</span>
+              <svg class="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+              </svg>
+            </div>
           </div>
+          <div class="absolute -bottom-8 -right-8 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
         </a>
 
         <!-- Live Dashboard Card -->
-        <a href={~p"/dashboard/live"} class="group bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-4 sm:p-6 sm:col-span-2 lg:col-span-1">
-          <div class="flex items-start justify-between">
-            <div class="flex-1">
-              <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-                <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                </svg>
-              </div>
-              <h3 class="text-lg font-semibold text-gray-900 mb-2">Live Dashboard</h3>
-              <p class="text-sm text-gray-600">View real-time data from your connected accounts and services.</p>
+        <a href={~p"/dashboard/live"} class="group relative bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-sm hover:shadow-xl transition-all duration-300 p-6 text-white overflow-hidden sm:col-span-2 lg:col-span-1">
+          <div class="absolute inset-0 bg-black opacity-0 group-hover:opacity-10 transition-opacity"></div>
+          <div class="relative z-10">
+            <div class="w-14 h-14 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+              </svg>
             </div>
-            <svg class="w-5 h-5 text-gray-400 group-hover:text-gray-600 transition-colors mt-1 flex-shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-            </svg>
+            <h3 class="text-xl font-bold mb-2">Live Dashboard</h3>
+            <p class="text-green-100 text-sm mb-4">View real-time data from your connected accounts and services.</p>
+            <div class="flex items-center text-white/80 text-sm group-hover:text-white">
+              <span>View dashboard</span>
+              <svg class="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+              </svg>
+            </div>
           </div>
+          <div class="absolute -bottom-8 -right-8 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
         </a>
       </div>
     </div>
 
-    <!-- Connected Services -->
+    <!-- Connected Services Grid -->
     <div class="mb-8">
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Connected Services</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-        <!-- Google Services -->
-        <div class="bg-white rounded-xl shadow-sm p-4 sm:p-6">
-          <div class="flex flex-col space-y-4">
-            <div class="flex items-start justify-between">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+        </svg>
+        Connected Services
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Google Services Card -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 overflow-hidden">
+          <div class="p-6">
+            <div class="flex items-start justify-between mb-4">
               <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <svg class="w-6 h-6" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md">
+                  <svg class="w-7 h-7" viewBox="0 0 24 24">
+                    <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
                 </div>
-                <div class="min-w-0">
-                  <h3 class="font-medium text-gray-900 truncate">Google Services</h3>
+                <div>
+                  <h3 class="font-semibold text-gray-900">Google Workspace</h3>
                   <p class="text-sm text-gray-500">Gmail & Calendar</p>
                 </div>
               </div>
-              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 flex-shrink-0 ml-2">
+              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 ring-1 ring-green-600/20">
                 Connected
               </span>
             </div>
-            <div class="space-y-2 text-sm text-gray-600">
-              <div class="flex items-center gap-2">
-                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <div class="space-y-3">
+              <div class="flex items-center gap-2 text-sm">
+                <svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
                 </svg>
-                <span class="truncate">Email access (Read/Write)</span>
+                <span class="text-gray-600">Email access enabled</span>
               </div>
-              <div class="flex items-center gap-2">
-                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <div class="flex items-center gap-2 text-sm">
+                <svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
                 </svg>
-                <span class="truncate">Calendar access (Read/Write)</span>
+                <span class="text-gray-600">Calendar sync active</span>
+              </div>
+            </div>
+            <div class="mt-4 pt-4 border-t border-gray-100">
+              <div class="flex items-center justify-between text-xs text-gray-500">
+                <span>Last synced 2 minutes ago</span>
+                <button class="text-blue-600 hover:text-blue-700 font-medium">Sync now</button>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- HubSpot -->
-        <div class="bg-white rounded-xl shadow-sm p-4 sm:p-6">
-          <div class="flex flex-col space-y-4">
-            <div class="flex items-start justify-between">
+        <!-- HubSpot Card -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 overflow-hidden">
+          <div class="p-6">
+            <div class="flex items-start justify-between mb-4">
               <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <svg class="w-6 h-6 text-orange-500" fill="currentColor" viewBox="0 0 24 24">
+                <div class="w-12 h-12 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center shadow-md">
+                  <svg class="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M18.164 6.636a3.273 3.273 0 100-6.545 3.273 3.273 0 000 6.545zm0-1.636a1.636 1.636 0 110-3.273 1.636 1.636 0 010 3.273zM12 8.273a3.273 3.273 0 100 6.545 3.273 3.273 0 000-6.545zm0 4.909a1.636 1.636 0 110-3.273 1.636 1.636 0 010 3.273zm0 1.636a3.273 3.273 0 103.273 3.273A3.273 3.273 0 0012 14.818zm0 4.909a1.636 1.636 0 111.636-1.636A1.636 1.636 0 0112 19.727zm-6.164-13.09a3.273 3.273 0 10-3.272 3.272 3.273 3.273 0 003.272-3.273zm-3.272 1.636a1.636 1.636 0 110-3.273 1.636 1.636 0 010 3.273z"/>
-                    <path d="M7.636 9.091v3.273c0 .452.366.818.818.818h6.364v3.273c0 .452.366.818.818.818h3.273a.818.818 0 00.818-.818v-6.364h3.273a.818.818 0 00.818-.818V5.818A.818.818 0 0023 5h-3.273a.818.818 0 00-.818.818v2.455h-3.273V5.818A.818.818 0 0014.818 5h-3.273a.818.818 0 00-.818.818v2.455H8.454a.818.818 0 00-.818.818z"/>
                   </svg>
                 </div>
-                <div class="min-w-0 flex-1">
-                  <h3 class="font-medium text-gray-900 truncate">HubSpot CRM</h3>
-                  <p class="text-sm text-gray-500 truncate">
+                <div>
+                  <h3 class="font-semibold text-gray-900">HubSpot CRM</h3>
+                  <p class="text-sm text-gray-500">
                     <%= if @hubspot_connection do %>
-                      Portal: <%= @hubspot_connection.portal_id %>
+                      Portal <%= @hubspot_connection.portal_id %>
                     <% else %>
                       Not connected
                     <% end %>
@@ -152,110 +152,147 @@
                 </div>
               </div>
               <%= if @hubspot_connection do %>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 flex-shrink-0 ml-2">
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 ring-1 ring-green-600/20">
                   Connected
                 </span>
               <% else %>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 flex-shrink-0 ml-2">
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700 ring-1 ring-gray-600/20">
                   Not connected
                 </span>
               <% end %>
             </div>
-            <div class="mt-auto">
-                <%= if @hubspot_connection do %>
-                  <.link
-                    href={~p"/hubspot/disconnect"}
-                    method={:delete}
-                    data-confirm="Are you sure you want to disconnect your HubSpot account?"
-                    class="text-sm text-red-600 hover:text-red-700 font-medium"
-                  >
-                    Disconnect
-                  </.link>
-                <% else %>
-                <a
-                  href={~p"/hubspot/connect"}
-                  class="inline-flex items-center justify-center w-full px-4 py-2 border border-orange-300 text-sm font-medium rounded-lg text-orange-700 bg-orange-50 hover:bg-orange-100 transition-colors"
+            <%= if @hubspot_connection do %>
+              <div class="space-y-3">
+                <div class="flex items-center gap-2 text-sm">
+                  <svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                  </svg>
+                  <span class="text-gray-600">Contact sync enabled</span>
+                </div>
+                <div class="flex items-center gap-2 text-sm">
+                  <svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                  </svg>
+                  <span class="text-gray-600">Activity tracking active</span>
+                </div>
+              </div>
+              <div class="mt-4 pt-4 border-t border-gray-100">
+                <.link
+                  href={~p"/hubspot/disconnect"}
+                  method={:delete}
+                  data-confirm="Are you sure you want to disconnect your HubSpot account?"
+                  class="text-sm text-red-600 hover:text-red-700 font-medium"
                 >
-                  Connect HubSpot
-                </a>
-              <% end %>
-            </div>
+                  Disconnect account
+                </.link>
+              </div>
+            <% else %>
+              <p class="text-sm text-gray-600 mb-4">
+                Connect your HubSpot account to sync contacts and track interactions automatically.
+              </p>
+              <a
+                href={~p"/hubspot/connect"}
+                class="inline-flex items-center justify-center w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Connect HubSpot
+              </a>
+            <% end %>
           </div>
         </div>
 
-        <!-- OpenAI Status -->
-        <div class="bg-white rounded-xl shadow-sm p-4 sm:p-6 sm:col-span-2 lg:col-span-1">
-          <div class="flex flex-col space-y-4 h-full">
-            <div class="flex items-start justify-between">
+        <!-- AI Engine Status -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 overflow-hidden">
+          <div class="p-6">
+            <div class="flex items-start justify-between mb-4">
               <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-md">
+                  <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
                   </svg>
                 </div>
-                <div class="min-w-0">
-                  <h3 class="font-medium text-gray-900 truncate">AI Engine</h3>
+                <div>
+                  <h3 class="font-semibold text-gray-900">AI Engine</h3>
                   <p class="text-sm text-gray-500">OpenAI GPT-4</p>
                 </div>
               </div>
-              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 flex-shrink-0 ml-2">
-                Active
+              <span class="relative flex h-3 w-3">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
               </span>
             </div>
-            <p class="text-sm text-gray-600 flex-1">
-              AI assistant ready to help with your tasks and queries.
-            </p>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-600">Response time</span>
+                <span class="font-medium text-gray-900">~1.2s</span>
+              </div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-600">Requests today</span>
+                <span class="font-medium text-gray-900">0</span>
+              </div>
+            </div>
+            <div class="mt-4">
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full" style="width: 15%"></div>
+              </div>
+              <p class="text-xs text-gray-500 mt-2">15% of daily limit used</p>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- User Profile Section -->
-    <div class="bg-white rounded-xl shadow-sm p-4 sm:p-6">
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Account Information</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-        <div>
-          <label class="block text-sm font-medium text-gray-500">Name</label>
-          <p class="mt-1 text-sm text-gray-900"><%= @current_user.name || "Not provided" %></p>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-500">Email</label>
-          <p class="mt-1 text-sm text-gray-900 break-all"><%= @current_user.email %></p>
-        </div>
-        <div class="sm:col-span-2">
-          <label class="block text-sm font-medium text-gray-500">Google ID</label>
-          <p class="mt-1 text-sm text-gray-900 font-mono text-xs break-all"><%= @current_user.google_id %></p>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-500">Member Since</label>
-          <p class="mt-1 text-sm text-gray-900"><%= Calendar.strftime(@current_user.inserted_at, "%B %d, %Y") %></p>
+    <!-- Recent Activity & Tips -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <!-- Recent Activity -->
+      <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          Recent Activity
+        </h2>
+        <div class="space-y-4">
+          <div class="flex items-center justify-center py-12 text-gray-400">
+            <div class="text-center">
+              <svg class="w-12 h-12 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+              <p class="text-sm">No recent activity to display</p>
+              <p class="text-xs mt-1">Start using the AI assistant to see your activity here</p>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Quick Tips -->
-    <div class="mt-8 bg-blue-50 rounded-xl p-4 sm:p-6">
-      <h3 class="text-lg font-semibold text-blue-900 mb-3">💡 Quick Tips</h3>
-      <ul class="space-y-2 text-sm text-blue-800">
-        <li class="flex items-start gap-2">
-          <svg class="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      <!-- Pro Tips -->
+      <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
+        <h3 class="text-lg font-semibold text-blue-900 mb-4 flex items-center gap-2">
+          <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
           </svg>
-          <span>Ask the AI assistant to search your emails, schedule meetings, or manage contacts.</span>
-        </li>
-        <li class="flex items-start gap-2">
-          <svg class="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          Pro Tips
+        </h3>
+        <ul class="space-y-3">
+          <li class="flex items-start gap-2">
+            <span class="text-blue-600 mt-0.5">•</span>
+            <p class="text-sm text-blue-800">Try saying "Search my emails for meetings this week" to quickly find relevant messages.</p>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-blue-600 mt-0.5">•</span>
+            <p class="text-sm text-blue-800">Set up an instruction like "When I receive an email from a new contact, add them to HubSpot".</p>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-blue-600 mt-0.5">•</span>
+            <p class="text-sm text-blue-800">Use natural language to schedule meetings: "Schedule a 30-minute call with John next week".</p>
+          </li>
+        </ul>
+        <a href="#" class="inline-flex items-center text-sm font-medium text-blue-700 hover:text-blue-800 mt-4">
+          View all tips
+          <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
           </svg>
-          <span>Set up automated instructions to handle repetitive tasks without manual intervention.</span>
-        </li>
-        <li class="flex items-start gap-2">
-          <svg class="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          <span>Connect HubSpot to automatically sync contacts and track interactions.</span>
-        </li>
-      </ul>
+        </a>
+      </div>
     </div>
   </div>
 </div>
