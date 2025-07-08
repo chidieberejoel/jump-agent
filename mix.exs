@@ -59,7 +59,13 @@ defmodule JumpAgent.MixProject do
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
       {:ueberauth, "~> 0.10"},
-      {:ueberauth_google, "~> 0.10"}
+      {:ueberauth_google, "~> 0.10"},
+      {:pgvector, "~> 0.3.0"},
+      {:openai_ex, "~> 0.9.0"},
+      {:oban, "~> 2.18"},
+      {:timex, "~> 3.7"},
+      {:hackney, "~> 1.20"},
+      {:ex_machina, "~> 2.8", only: :test}
     ]
   end
 

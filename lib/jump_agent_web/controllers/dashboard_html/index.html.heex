@@ -4,9 +4,61 @@
     <:subtitle>
       Hello, <%= @current_user.name || @current_user.email %>!
     </:subtitle>
+    <:actions>
+      <.link
+        navigate={~p"/chat"}
+        class="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand/90 inline-flex items-center gap-2"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+        </svg>
+        Open AI Assistant
+      </.link>
+    </:actions>
   </.header>
 
-  <div class="mt-8">
+  <div class="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+    <!-- AI Assistant Card -->
+    <div class="bg-white overflow-hidden shadow rounded-lg">
+        <div class="px-4 py-5 sm:p-6">
+          <div class="flex items-center">
+            <div class="flex-shrink-0">
+              <svg class="h-8 w-8 text-purple-600" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M21.928 11.607c-.202-.488-.635-.605-.928-.633V8c0-1.103-.897-2-2-2h-6V4.61c.305-.274.5-.668.5-1.11a1.5 1.5 0 0 0-3 0c0 .442.195.836.5 1.11V6H5c-1.103 0-2 .897-2 2v2.997l-.082.006A1 1 0 0 0 1.99 12v2a1 1 0 0 0 1 1H3v5c0 1.103.897 2 2 2h14c1.103 0 2-.897 2-2v-5a1 1 0 0 0 1-1v-1.938a1.006 1.006 0 0 0-.072-.455zM5 20V8h14l.001 3.996L19 12v2l.001.005.001 5.995H5z"/>
+                <ellipse cx="8.5" cy="12" rx="1.5" ry="2"/>
+                <ellipse cx="15.5" cy="12" rx="1.5" ry="2"/>
+                <path d="M8 16h8v2H8z"/>
+              </svg>
+            </div>
+            <div class="ml-5 w-0 flex-1">
+              <dl>
+                <dt class="text-sm font-medium text-gray-500 truncate">
+                  AI Assistant
+                </dt>
+                <dd>
+                  <div class="text-lg font-medium text-gray-900">
+                    Ask me anything
+                  </div>
+                </dd>
+              </dl>
+            </div>
+          </div>
+          <div class="mt-5 flex gap-2">
+            <.link
+              navigate={~p"/chat"}
+              class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+            >
+              Open Chat
+            </.link>
+            <.link
+              navigate={~p"/instructions"}
+              class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand"
+            >
+              Instructions
+            </.link>
+          </div>
+        </div>
+    </div>
     <div class="bg-white shadow overflow-hidden sm:rounded-lg">
       <div class="px-4 py-5 sm:px-6">
         <h3 class="text-lg leading-6 font-medium text-gray-900">

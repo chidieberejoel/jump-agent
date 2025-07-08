@@ -83,4 +83,28 @@ defmodule JumpAgent.HubSpot do
   def delete_connection(%Connection{} = connection) do
     Repo.delete(connection)
   end
+
+  @doc """
+  Lists all active HubSpot connections.
+  """
+  def list_all_connections do
+    Connection
+    |> Repo.all()
+    |> Repo.preload(:user)
+  end
+
+  @doc """
+  Gets the user for a connection.
+  """
+  def get_connection_user(%Connection{} = connection) do
+    connection = Repo.preload(connection, :user)
+    connection.user
+  end
+
+  @doc """
+  Gets a connection by portal ID.
+  """
+  def get_connection_by_portal_id(portal_id) when is_binary(portal_id) do
+    Repo.get_by(Connection, portal_id: portal_id)
+  end
 end

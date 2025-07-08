@@ -64,6 +64,8 @@ defmodule JumpAgentWeb.Router do
     live_session :require_authenticated_user,
       on_mount: [{JumpAgentWeb.LiveAuth, :require_authenticated_user}] do
       live "/dashboard/live", DashboardLive, :index
+      live "/chat", ChatLive, :index
+      live "/instructions", InstructionsLive, :index
     end
   end
 

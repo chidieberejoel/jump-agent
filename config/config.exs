@@ -71,6 +71,22 @@ config :ueberauth, Ueberauth,
    ]}
   ]
 
+# Configure Oban
+config :jump_agent, Oban,
+  repo: JumpAgent.Repo,
+  plugins: [
+   Oban.Plugins.Pruner,
+   {Oban.Plugins.Cron, crontab: [
+     # Sync Gmail every 5 minutes
+     {"*/5 * * * *", JumpAgent.Workers.GmailSyncWorker},
+     # Sync HubSpot every 10 minutes
+     {"*/10 * * * *", JumpAgent.Workers.HubSpotSyncWorker},
+     # Process pending tasks every minute
+     {"* * * * *", JumpAgent.Workers.TaskProcessorWorker}
+   ]}
+  ],
+  queues: [default: 10, sync: 5, ai: 3]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

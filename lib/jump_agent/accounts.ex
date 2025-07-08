@@ -98,6 +98,30 @@ defmodule JumpAgent.Accounts do
     User.decrypted_refresh_token(user)
   end
 
+  @doc """
+  Get decrypted refresh token
+  """
+  def get_refresh_token(%User{} = user) do
+    User.decrypted_refresh_token(user)
+  end
+
+  @doc """
+  Lists all users with valid Google tokens.
+  """
+  def list_users_with_google_tokens do
+    User
+    |> where([u], not is_nil(u.google_access_token))
+    |> where([u], not is_nil(u.google_refresh_token))
+    |> Repo.all()
+  end
+
+  @doc """
+  Lists all users.
+  """
+  def list_all_users do
+    Repo.all(User)
+  end
+
 #  @doc """
 #  Returns an `%Ecto.Changeset{}` for tracking user changes.
 #

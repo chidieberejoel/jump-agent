@@ -65,6 +65,44 @@ defmodule JumpAgent.GoogleAPI do
     gmail_request(user, :get, "/users/me/messages/#{message_id}")
   end
 
+  @doc """
+  Send an email
+  """
+  def send_email(user, message) do
+    # Build the raw email
+    raw_message = build_raw_email(message)
+
+    # Base64 encode it for the API
+    encoded = Base.url_encode64(raw_message, padding: false)
+
+    body = %{raw: encoded}
+
+    gmail_request(user, :post, "/users/me/messages/send", body)
+  end
+
+  @doc """
+  Create a calendar event
+  """
+  def create_calendar_event(user, event, calendar_id \\ "primary") do
+    calendar_request(user, :post, "/calendars/#{calendar_id}/events", event)
+  end
+
+  defp build_raw_email(message) do
+    to = message.to
+    subject = message.subject
+    body = message.body
+    cc = if message[:cc], do: "Cc: #{Enum.join(message.cc, ", ")}\r\n", else: ""
+    bcc = if message[:bcc], do: "Bcc: #{Enum.join(message.bcc, ", ")}\r\n", else: ""
+
+    """
+    To: #{to}\r
+    Subject: #{subject}\r
+    #{cc}#{bcc}Content-Type: text/plain; charset=UTF-8\r
+    \r
+    #{body}
+    """
+  end
+
   defp make_request(user, method, url, body, retry_count \\ 0) do
     # Check if token is expired and refresh if needed
     user =

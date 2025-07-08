@@ -14,6 +14,11 @@ defmodule JumpAgent.Application do
       {Phoenix.PubSub, name: JumpAgent.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: JumpAgent.Finch},
+      # Start AI services
+      JumpAgent.AI.OpenAIClient,
+      JumpAgent.AI.Metrics,
+      # Start Oban for background jobs
+      {Oban, oban_config()},
       # Start a worker by calling: JumpAgent.Worker.start_link(arg)
       # {JumpAgent.Worker, arg},
       # Start to serve requests, typically the last entry
@@ -24,6 +29,10 @@ defmodule JumpAgent.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: JumpAgent.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp oban_config do
+    Application.fetch_env!(:jump_agent, Oban)
   end
 
   # Tell Phoenix to update the endpoint configuration
