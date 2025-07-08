@@ -162,16 +162,16 @@
               <% end %>
             </div>
             <div class="mt-auto">
-              <%= if @hubspot_connection do %>
-                <a
-                  href={~p"/hubspot/disconnect"}
-                  method="delete"
-                  data-confirm="Are you sure you want to disconnect your HubSpot account?"
-                  class="text-sm text-red-600 hover:text-red-700 font-medium"
-                >
-                  Disconnect
-                </a>
-              <% else %>
+                <%= if @hubspot_connection do %>
+                  <.link
+                    href={~p"/hubspot/disconnect"}
+                    method={:delete}
+                    data-confirm="Are you sure you want to disconnect your HubSpot account?"
+                    class="text-sm text-red-600 hover:text-red-700 font-medium"
+                  >
+                    Disconnect
+                  </.link>
+                <% else %>
                 <a
                   href={~p"/hubspot/connect"}
                   class="inline-flex items-center justify-center w-full px-4 py-2 border border-orange-300 text-sm font-medium rounded-lg text-orange-700 bg-orange-50 hover:bg-orange-100 transition-colors"
