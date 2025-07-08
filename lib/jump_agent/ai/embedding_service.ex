@@ -15,7 +15,22 @@ defmodule JumpAgent.AI.EmbeddingService do
     # Truncate text if too long
     text = truncate_text(text)
 
-    JumpAgent.AI.OpenAIClient.create_embedding(text)
+    # Check if the OpenAI client is available
+    if GenServer.whereis(JumpAgent.AI.OpenAIClient) do
+      try do
+        JumpAgent.AI.OpenAIClient.create_embedding(text)
+      catch
+        :exit, {:noproc, _} ->
+          Logger.warning("OpenAI client is not running")
+          {:error, :openai_client_not_available}
+        :exit, reason ->
+          Logger.error("Failed to call OpenAI client: #{inspect(reason)}")
+          {:error, :openai_client_error}
+      end
+    else
+      Logger.warning("OpenAI client is not started")
+      {:error, :openai_client_not_started}
+    end
   end
 
   @doc """
@@ -25,7 +40,21 @@ defmodule JumpAgent.AI.EmbeddingService do
     # OpenAI supports batch embedding
     texts = Enum.map(texts, &truncate_text/1)
 
-    JumpAgent.AI.OpenAIClient.create_embeddings(texts)
+    if GenServer.whereis(JumpAgent.AI.OpenAIClient) do
+      try do
+        JumpAgent.AI.OpenAIClient.create_embeddings(texts)
+      catch
+        :exit, {:noproc, _} ->
+          Logger.warning("OpenAI client is not running")
+          {:error, :openai_client_not_available}
+        :exit, reason ->
+          Logger.error("Failed to call OpenAI client: #{inspect(reason)}")
+          {:error, :openai_client_error}
+      end
+    else
+      Logger.warning("OpenAI client is not started")
+      {:error, :openai_client_not_started}
+    end
   end
 
   defp truncate_text(text) do

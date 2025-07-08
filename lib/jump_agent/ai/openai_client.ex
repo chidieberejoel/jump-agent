@@ -10,26 +10,30 @@ defmodule JumpAgent.AI.OpenAIClient do
   @max_retries 3
 
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    # Use a unique name if provided in opts, otherwise use the module name
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
   end
 
   def init(_opts) do
-    case api_key() do
-      nil ->
-        Logger.warning("OpenAI API key not configured - OpenAI features will be disabled")
-        {:ok, %{
-          last_request: 0,
-          request_queue: :queue.new(),
-          processing: false,
-          api_available: false
-        }}
-      _key ->
-        {:ok, %{
-          last_request: 0,
-          request_queue: :queue.new(),
-          processing: false,
-          api_available: true
-        }}
+    api_key = Application.get_env(:openai_ex, :api_key)
+
+    if is_nil(api_key) || api_key == "" do
+      Logger.warning("OpenAI API key not configured - OpenAI features will be disabled")
+      {:ok, %{
+        last_request: 0,
+        request_queue: :queue.new(),
+        processing: false,
+        api_available: false
+      }}
+    else
+      Logger.info("OpenAI client initialized with API key")
+      {:ok, %{
+        last_request: 0,
+        request_queue: :queue.new(),
+        processing: false,
+        api_available: true
+      }}
     end
   end
 
@@ -50,21 +54,33 @@ defmodule JumpAgent.AI.OpenAIClient do
   # Server callbacks
 
   def handle_call({:chat_completion, messages, tools, opts}, from, state) do
-    request = {:chat, messages, tools, opts, from}
-    state = enqueue_request(request, state)
-    {:noreply, process_queue(state)}
+    if state.api_available do
+      request = {:chat, messages, tools, opts, from}
+      state = enqueue_request(request, state)
+      {:noreply, process_queue(state)}
+    else
+      {:reply, {:error, :no_api_key}, state}
+    end
   end
 
   def handle_call({:create_embedding, text}, from, state) do
-    request = {:embedding, text, from}
-    state = enqueue_request(request, state)
-    {:noreply, process_queue(state)}
+    if state.api_available do
+      request = {:embedding, text, from}
+      state = enqueue_request(request, state)
+      {:noreply, process_queue(state)}
+    else
+      {:reply, {:error, :no_api_key}, state}
+    end
   end
 
   def handle_call({:create_embeddings, texts}, from, state) do
-    request = {:embeddings, texts, from}
-    state = enqueue_request(request, state)
-    {:noreply, process_queue(state)}
+    if state.api_available do
+      request = {:embeddings, texts, from}
+      state = enqueue_request(request, state)
+      {:noreply, process_queue(state)}
+    else
+      {:reply, {:error, :no_api_key}, state}
+    end
   end
 
   def handle_info(:process_next, state) do
@@ -126,79 +142,121 @@ defmodule JumpAgent.AI.OpenAIClient do
   end
 
   defp do_chat_completion(messages, tools, opts, retry_count \\ 0) do
-    client = OpenaiEx.new(api_key: api_key())
+    api_key = Application.get_env(:openai_ex, :api_key)
 
-    model = Keyword.get(opts, :model, "gpt-4-turbo-preview")
-    temperature = Keyword.get(opts, :temperature, 0.7)
-    max_tokens = Keyword.get(opts, :max_tokens, 1000)
+    if is_nil(api_key) || api_key == "" do
+      {:error, :no_api_key}
+    else
+      client = OpenaiEx.new(api_key: api_key)
 
-    request = %{
-      model: model,
-      messages: messages,
-      temperature: temperature,
-      max_tokens: max_tokens
-    }
+      model = Keyword.get(opts, :model, "gpt-4-turbo")
+      temperature = Keyword.get(opts, :temperature, 0.7)
+      max_tokens = Keyword.get(opts, :max_tokens, 1000)
 
-    request = if tools, do: Map.merge(request, %{tools: tools, tool_choice: "auto"}), else: request
+      # Build the request - ensure messages have proper format
+      request = %{
+        "model" => model,
+        "messages" => messages,
+        "temperature" => temperature,
+        "max_tokens" => max_tokens
+      }
 
-    case OpenaiEx.Chat.create_completion(client, request) do
-      {:ok, response} ->
-        {:ok, response}
+      # Add tools if provided
+      request = if tools do
+        Map.merge(request, %{"tools" => tools, "tool_choice" => "auto"})
+      else
+        request
+      end
 
-      {:error, %{status: 429}} when retry_count < @max_retries ->
-        # Rate limited, wait and retry
-        Process.sleep((retry_count + 1) * 2000)
-        do_chat_completion(messages, tools, opts, retry_count + 1)
+      Logger.debug("OpenAI request: #{inspect(request)}")
 
-      {:error, reason} ->
-        Logger.error("OpenAI chat completion failed: #{inspect(reason)}")
-        {:error, reason}
+      case OpenaiEx.Chat.create_completion(client, request) do
+        {:ok, response} ->
+          Logger.debug("OpenAI response: #{inspect(response)}")
+          {:ok, response}
+
+        {:error, %{status: 429}} when retry_count < @max_retries ->
+          # Rate limited, wait and retry
+          wait_time = (retry_count + 1) * 2000
+          Logger.warning("OpenAI rate limit hit, waiting #{wait_time}ms before retry")
+          Process.sleep(wait_time)
+          do_chat_completion(messages, tools, opts, retry_count + 1)
+
+        {:error, %{status: 401}} ->
+          Logger.error("OpenAI authentication failed - check your API key")
+          {:error, {:api_error, "Authentication failed. Please check your OpenAI API key."}}
+
+        {:error, %{status: 400, body: body}} ->
+          Logger.error("OpenAI bad request: #{inspect(body)}")
+          error_msg = extract_error_message(body)
+          {:error, {:api_error, error_msg}}
+
+        {:error, %{status: status, body: body}} ->
+          Logger.error("OpenAI API error (status #{status}): #{inspect(body)}")
+          error_msg = extract_error_message(body)
+          {:error, {:api_error, "API error (#{status}): #{error_msg}"}}
+
+        {:error, reason} ->
+          Logger.error("OpenAI request failed: #{inspect(reason)}")
+          {:error, {:api_error, "Request failed: #{inspect(reason)}"}}
+      end
     end
   end
 
   defp do_create_embedding(text, retry_count \\ 0) do
-    client = OpenaiEx.new(api_key: api_key())
+    api_key = Application.get_env(:openai_ex, :api_key)
 
-    case OpenaiEx.Embeddings.create(client, %{
-      model: "text-embedding-3-small",
-      input: text
-    }) do
-      {:ok, %{data: [%{embedding: embedding} | _]}} ->
-        {:ok, embedding}
+    if is_nil(api_key) || api_key == "" do
+      {:error, :no_api_key}
+    else
+      client = OpenaiEx.new(api_key: api_key)
 
-      {:error, %{status: 429}} when retry_count < @max_retries ->
-        Process.sleep((retry_count + 1) * 2000)
-        do_create_embedding(text, retry_count + 1)
+      case OpenaiEx.Embeddings.create(client, %{
+        "model" => "text-embedding-3-small",
+        "input" => text
+      }) do
+        {:ok, %{"data" => [%{"embedding" => embedding} | _]}} ->
+          {:ok, embedding}
 
-      {:error, reason} ->
-        Logger.error("OpenAI embedding creation failed: #{inspect(reason)}")
-        {:error, reason}
+        {:error, %{status: 429}} when retry_count < @max_retries ->
+          Process.sleep((retry_count + 1) * 2000)
+          do_create_embedding(text, retry_count + 1)
+
+        {:error, reason} ->
+          Logger.error("OpenAI embedding creation failed: #{inspect(reason)}")
+          {:error, reason}
+      end
     end
   end
 
   defp do_create_embeddings(texts, retry_count \\ 0) do
-    client = OpenaiEx.new(api_key: api_key())
+    api_key = Application.get_env(:openai_ex, :api_key)
 
-    case OpenaiEx.Embeddings.create(client, %{
-      model: "text-embedding-3-small",
-      input: texts
-    }) do
-      {:ok, %{data: embeddings}} ->
-        vectors = Enum.map(embeddings, & &1.embedding)
-        {:ok, vectors}
+    if is_nil(api_key) || api_key == "" do
+      {:error, :no_api_key}
+    else
+      client = OpenaiEx.new(api_key: api_key)
 
-      {:error, %{status: 429}} when retry_count < @max_retries ->
-        Process.sleep((retry_count + 1) * 2000)
-        do_create_embeddings(texts, retry_count + 1)
+      case OpenaiEx.Embeddings.create(client, %{
+        "model" => "text-embedding-3-small",
+        "input" => texts
+      }) do
+        {:ok, %{"data" => embeddings}} ->
+          vectors = Enum.map(embeddings, & &1["embedding"])
+          {:ok, vectors}
 
-      {:error, reason} ->
-        Logger.error("OpenAI embeddings creation failed: #{inspect(reason)}")
-        {:error, reason}
+        {:error, %{status: 429}} when retry_count < @max_retries ->
+          Process.sleep((retry_count + 1) * 2000)
+          do_create_embeddings(texts, retry_count + 1)
+
+        {:error, reason} ->
+          Logger.error("OpenAI embeddings creation failed: #{inspect(reason)}")
+          {:error, reason}
+      end
     end
   end
 
-  defp api_key do
-    Application.get_env(:openai_ex, :api_key) ||
-      raise "OpenAI API key not configured"
-  end
+  defp extract_error_message(%{"error" => %{"message" => message}}), do: message
+  defp extract_error_message(body) when is_binary(body), do: body
+  defp extract_error_message(_), do: "Unknown error"
 end

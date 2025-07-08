@@ -77,13 +77,18 @@ defmodule JumpAgent.Workers.HubSpotSyncWorker do
         "lifecycle_stage" => props["lifecyclestage"]
       })
 
-      AI.upsert_document_embedding(user, %{
+      case AI.upsert_document_embedding(user, %{
         source_type: "hubspot_contact",
         source_id: contact["id"],
         content: prepared_content,
         metadata: props,
         created_at_source: parse_hubspot_date(contact["createdAt"])
-      })
+      }) do
+        {:ok, _embedding} ->
+          Logger.debug("Created embedding for HubSpot contact #{contact["id"]}")
+        {:error, reason} ->
+          Logger.warning("Failed to create embedding for HubSpot contact #{contact["id"]}: #{inspect(reason)}")
+      end
     end
   end
 
@@ -126,7 +131,7 @@ defmodule JumpAgent.Workers.HubSpotSyncWorker do
         }
       )
 
-      AI.upsert_document_embedding(user, %{
+      case AI.upsert_document_embedding(user, %{
         source_type: "hubspot_note",
         source_id: to_string(engagement["engagement"]["id"]),
         content: prepared_content,
@@ -135,7 +140,12 @@ defmodule JumpAgent.Workers.HubSpotSyncWorker do
           "subject" => metadata["subject"]
         },
         created_at_source: parse_hubspot_date(engagement["engagement"]["createdAt"])
-      })
+      }) do
+        {:ok, _embedding} ->
+          Logger.debug("Created embedding for HubSpot note #{engagement["engagement"]["id"]}")
+        {:error, reason} ->
+          Logger.warning("Failed to create embedding for HubSpot note #{engagement["engagement"]["id"]}: #{inspect(reason)}")
+      end
     end
   end
 

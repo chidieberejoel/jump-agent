@@ -51,8 +51,7 @@ defmodule JumpAgent.HubSpot.Connection do
   Encrypts a token using application secret
   """
   def encrypt_token(token) when is_binary(token) do
-    secret = Application.get_env(:jump_agent, :token_encryption_key) ||
-      raise "Token encryption key not configured!"
+    secret = get_encryption_key()
 
     iv = :crypto.strong_rand_bytes(16)
     encrypted = :crypto.crypto_one_time(:aes_256_ctr, secret, iv, token, true)
@@ -64,12 +63,24 @@ defmodule JumpAgent.HubSpot.Connection do
   """
   def decrypt_token(nil), do: nil
   def decrypt_token(encrypted_token) when is_binary(encrypted_token) do
-    secret = Application.get_env(:jump_agent, :token_encryption_key) ||
-      raise "Token encryption key not configured!"
+    secret = get_encryption_key()
 
     decoded = Base.decode64!(encrypted_token)
     <<iv::binary-size(16), encrypted::binary>> = decoded
     :crypto.crypto_one_time(:aes_256_ctr, secret, iv, encrypted, false)
+  end
+
+  defp get_encryption_key do
+    case Application.get_env(:jump_agent, :token_encryption_key) do
+      nil ->
+        raise "Token encryption key not configured!"
+      key when is_binary(key) and byte_size(key) == 32 ->
+        key
+      key when is_binary(key) ->
+        raise "Invalid encryption key size: expected 32 bytes, got #{byte_size(key)} bytes"
+      key ->
+        raise "Invalid encryption key type: #{inspect(key)}"
+    end
   end
 
   @doc """

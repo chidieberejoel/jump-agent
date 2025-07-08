@@ -85,14 +85,19 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
       # Prepare content with metadata
       prepared_content = EmbeddingService.prepare_content(content, metadata)
 
-      # Create embedding
-      AI.upsert_document_embedding(user, %{
+      # Create embedding - this will now handle failures gracefully
+      case AI.upsert_document_embedding(user, %{
         source_type: "gmail",
         source_id: email["id"],
         content: prepared_content,
         metadata: metadata,
         created_at_source: parse_email_date(email["internalDate"])
-      })
+      }) do
+        {:ok, _embedding} ->
+          Logger.debug("Created embedding for email #{email["id"]}")
+        {:error, reason} ->
+          Logger.warning("Failed to create embedding for email #{email["id"]}: #{inspect(reason)}")
+      end
     end
   end
 
@@ -120,7 +125,15 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
   defp find_part_content(payload, mime_type) do
     cond do
       payload["mimeType"] == mime_type && payload["body"]["data"] ->
-        Base.url_decode64!(payload["body"]["data"], padding: false)
+        case Base.url_decode64(payload["body"]["data"], padding: false) do
+          {:ok, decoded} -> decoded
+          {:error, _} ->
+            # Try with padding if the first attempt fails
+            case Base.url_decode64(payload["body"]["data"]) do
+              {:ok, decoded} -> decoded
+              {:error, _} -> nil
+            end
+        end
 
       payload["parts"] ->
         Enum.find_value(payload["parts"], fn part ->

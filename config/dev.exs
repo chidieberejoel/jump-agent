@@ -81,7 +81,7 @@ config :openai_ex,
 # Token encryption key - generate with: :crypto.strong_rand_bytes(32) |> Base.encode64()
 # Example key (DO NOT USE IN PRODUCTION):
 config :jump_agent, :token_encryption_key,
-  System.get_env("TOKEN_ENCRYPTION_KEY") ||
+  (System.get_env("TOKEN_ENCRYPTION_KEY") && Base.decode64!(System.get_env("TOKEN_ENCRYPTION_KEY"))) ||
   Base.decode64!("QE3RmNXk9ooICesIbmwN2Ixy1bJMTKstE8UuDo+9Crc=")
 
 # Do not include metadata nor timestamps in development logs

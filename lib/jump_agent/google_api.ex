@@ -6,6 +6,7 @@ defmodule JumpAgent.GoogleAPI do
   @gmail_base_url "https://gmail.googleapis.com/gmail/v1"
   @calendar_base_url "https://www.googleapis.com/calendar/v3"
   @oauth_token_url "https://oauth2.googleapis.com/token"
+  @max_retries 2
 
   alias JumpAgent.Accounts
   alias JumpAgent.Accounts.User
@@ -104,13 +105,17 @@ defmodule JumpAgent.GoogleAPI do
   end
 
   defp make_request(user, method, url, body, retry_count \\ 0) do
+    # Reload user to get fresh token data
+    user = Accounts.get_user!(user.id)
+
     # Check if token is expired and refresh if needed
     user =
       if Accounts.token_expired?(user) do
         Logger.info("Token expired for user #{user.id} (#{user.email}), attempting refresh")
 
         case refresh_token(user) do
-          {:ok, refreshed_user} -> refreshed_user
+          {:ok, refreshed_user} ->
+            refreshed_user
           {:error, reason} ->
             Logger.error("Token refresh failed: #{inspect(reason)}")
             user  # Continue with expired token, will likely get 401
@@ -122,6 +127,7 @@ defmodule JumpAgent.GoogleAPI do
     access_token = Accounts.get_access_token(user)
 
     if is_nil(access_token) do
+      Logger.error("No access token available for user #{user.id}")
       {:error, :no_access_token}
     else
       headers = [
@@ -132,15 +138,18 @@ defmodule JumpAgent.GoogleAPI do
 
       request_body = if body, do: Jason.encode!(body), else: ""
 
+      Logger.debug("Making #{method} request to #{url}")
+
       case Finch.build(method, url, headers, request_body)
            |> Finch.request(JumpAgent.Finch, receive_timeout: 30_000) do
-        {:ok, %Finch.Response{status: 200, body: response_body}} ->
-          {:ok, Jason.decode!(response_body)}
+        {:ok, %Finch.Response{status: status, body: response_body}} when status in 200..299 ->
+          if response_body == "" do
+            {:ok, %{}}
+          else
+            {:ok, Jason.decode!(response_body)}
+          end
 
-        {:ok, %Finch.Response{status: status, body: response_body}} when status in 201..299 ->
-          {:ok, Jason.decode!(response_body)}
-
-        {:ok, %Finch.Response{status: 401, body: response_body}} when retry_count < 1 ->
+        {:ok, %Finch.Response{status: 401, body: response_body}} when retry_count < @max_retries ->
           Logger.warning("Got 401, attempting token refresh for user #{user.id} (#{user.email})")
 
           case refresh_token(user) do
@@ -149,10 +158,12 @@ defmodule JumpAgent.GoogleAPI do
               make_request(refreshed_user, method, url, body, retry_count + 1)
 
             {:error, reason} ->
+              Logger.error("Token refresh failed: #{inspect(reason)}")
               {:error, {:unauthorized, reason}}
           end
 
-        {:ok, %Finch.Response{status: 401}} ->
+        {:ok, %Finch.Response{status: 401, body: response_body}} ->
+          Logger.error("Authentication failed after #{retry_count} retries: #{response_body}")
           {:error, :unauthorized}
 
         {:ok, %Finch.Response{status: 429, headers: headers}} ->
@@ -191,57 +202,82 @@ defmodule JumpAgent.GoogleAPI do
     refresh_token = Accounts.get_refresh_token(user)
 
     if is_nil(refresh_token) do
+      Logger.error("No refresh token available for user #{user.id}")
       {:error, :no_refresh_token}
     else
       client_id = Application.get_env(:ueberauth, Ueberauth.Strategy.Google.OAuth)[:client_id]
       client_secret = Application.get_env(:ueberauth, Ueberauth.Strategy.Google.OAuth)[:client_secret]
 
-      body = %{
-        grant_type: "refresh_token",
-        refresh_token: refresh_token,
-        client_id: client_id,
-        client_secret: client_secret
-      }
+      if is_nil(client_id) || is_nil(client_secret) do
+        Logger.error("Google OAuth client credentials not configured")
+        {:error, :oauth_not_configured}
+      else
+        body = %{
+          grant_type: "refresh_token",
+          refresh_token: refresh_token,
+          client_id: client_id,
+          client_secret: client_secret
+        }
 
-      headers = [
-        {"Content-Type", "application/x-www-form-urlencoded"},
-        {"Accept", "application/json"}
-      ]
+        headers = [
+          {"Content-Type", "application/x-www-form-urlencoded"},
+          {"Accept", "application/json"}
+        ]
 
-      request_body = URI.encode_query(body)
+        request_body = URI.encode_query(body)
 
-      case Finch.build(:post, @oauth_token_url, headers, request_body)
-           |> Finch.request(JumpAgent.Finch, receive_timeout: 10_000) do
-        {:ok, %Finch.Response{status: 200, body: response_body}} ->
-          response = Jason.decode!(response_body)
+        Logger.info("Attempting to refresh token for user #{user.id}")
 
-          expires_at =
-            DateTime.utc_now()
-            |> DateTime.add(response["expires_in"] || 3600, :second)
-            |> DateTime.truncate(:second)
+        case Finch.build(:post, @oauth_token_url, headers, request_body)
+             |> Finch.request(JumpAgent.Finch, receive_timeout: 10_000) do
+          {:ok, %Finch.Response{status: 200, body: response_body}} ->
+            response = Jason.decode!(response_body)
 
-          case Accounts.update_user_tokens(
-                 user,
-                 response["access_token"],
-                 response["refresh_token"] || refresh_token,  # Google doesn't always return a new refresh token
-                 expires_at
-               ) do
-            {:ok, updated_user} ->
-              Logger.info("Successfully refreshed token for user #{user.id} (#{user.email})")
-              {:ok, updated_user}
+            access_token = response["access_token"]
+            # Google may not always return a new refresh token
+            new_refresh_token = response["refresh_token"] || refresh_token
+            expires_in = response["expires_in"] || 3600
 
-            {:error, changeset} ->
-              Logger.error("Failed to save refreshed token: #{inspect(changeset.errors)}")
-              {:error, changeset}
-          end
+            expires_at =
+              DateTime.utc_now()
+              |> DateTime.add(expires_in, :second)
+              |> DateTime.truncate(:second)
 
-        {:ok, %Finch.Response{status: status, body: response_body}} ->
-          Logger.error("Token refresh failed with status #{status}: #{response_body}")
-          {:error, {:refresh_failed, status, response_body}}
+            case Accounts.update_user_tokens(
+                   user,
+                   access_token,
+                   new_refresh_token,
+                   expires_at
+                 ) do
+              {:ok, updated_user} ->
+                Logger.info("Successfully refreshed token for user #{user.id} (#{user.email})")
+                {:ok, updated_user}
 
-        {:error, reason} ->
-          Logger.error("Token refresh request failed: #{inspect(reason)}")
-          {:error, reason}
+              {:error, changeset} ->
+                Logger.error("Failed to save refreshed token: #{inspect(changeset.errors)}")
+                {:error, changeset}
+            end
+
+          {:ok, %Finch.Response{status: 400, body: response_body}} ->
+            error = Jason.decode!(response_body)
+            Logger.error("Token refresh failed with 400: #{inspect(error)}")
+
+            # Check for specific error types
+            if error["error"] == "invalid_grant" do
+              # The refresh token is invalid, user needs to re-authenticate
+              {:error, :invalid_refresh_token}
+            else
+              {:error, {:refresh_failed, 400, error}}
+            end
+
+          {:ok, %Finch.Response{status: status, body: response_body}} ->
+            Logger.error("Token refresh failed with status #{status}: #{response_body}")
+            {:error, {:refresh_failed, status, response_body}}
+
+          {:error, reason} ->
+            Logger.error("Token refresh request failed: #{inspect(reason)}")
+            {:error, reason}
+        end
       end
     end
   end

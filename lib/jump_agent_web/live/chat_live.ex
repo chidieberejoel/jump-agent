@@ -10,7 +10,6 @@ defmodule JumpAgentWeb.ChatLive do
     # current_user is set by the on_mount hook
     user = socket.assigns[:current_user]
 
-    # If user is not set, the on_mount hook will redirect
     if user do
       # Load conversations
       conversations = AI.list_conversations(user)
@@ -40,7 +39,8 @@ defmodule JumpAgentWeb.ChatLive do
         |> assign(:show_chat_modal, true)
         |> assign(:active_tab, "chat")
         |> assign(:context_source, "all_meetings")
-        |> assign(:processing_message, AsyncResult.ok(nil))}
+        |> assign(:processing_message, AsyncResult.ok(nil))
+        |> assign(:error_message, nil)}
     else
       # This should not happen as on_mount should handle authentication
       # But we need to provide default assigns for the template
@@ -54,7 +54,8 @@ defmodule JumpAgentWeb.ChatLive do
         |> assign(:show_chat_modal, false)
         |> assign(:active_tab, "chat")
         |> assign(:context_source, "all_meetings")
-        |> assign(:processing_message, AsyncResult.ok(nil))}
+        |> assign(:processing_message, AsyncResult.ok(nil))
+        |> assign(:error_message, nil)}
     end
   end
 
@@ -89,7 +90,8 @@ defmodule JumpAgentWeb.ChatLive do
       |> assign(:conversations, conversations)
       |> assign(:current_conversation, conversation)
       |> assign(:messages, [])
-      |> assign(:message_input, "")}
+      |> assign(:message_input, "")
+      |> assign(:error_message, nil)}
   end
 
   @impl true
@@ -101,7 +103,8 @@ defmodule JumpAgentWeb.ChatLive do
     {:noreply,
       socket
       |> assign(:current_conversation, conversation)
-      |> assign(:messages, messages)}
+      |> assign(:messages, messages)
+      |> assign(:error_message, nil)}
   end
 
   @impl true
@@ -112,39 +115,29 @@ defmodule JumpAgentWeb.ChatLive do
   @impl true
   def handle_event("send_message", %{"message" => message}, socket) when message != "" do
     user = socket.assigns.current_user
+    conversation = socket.assigns.current_conversation
 
-    # Check rate limit (30 messages per minute)
-#    case JumpAgent.RateLimiter.check_rate("chat:#{user.id}", 30) do
-#      {:ok, _remaining} ->
-        conversation = socket.assigns.current_conversation
+    # Create user message
+    {:ok, user_message} = AI.create_message(conversation, %{
+      role: "user",
+      content: message
+    })
 
-        # Create user message
-        {:ok, user_message} = AI.create_message(conversation, %{
-          role: "user",
-          content: message
-        })
+    # Add to messages list
+    messages = socket.assigns.messages ++ [user_message]
 
-        # Add to messages list
-        messages = socket.assigns.messages ++ [user_message]
+    # Start async processing
+    socket =
+      socket
+      |> assign(:messages, messages)
+      |> assign(:message_input, "")
+      |> assign(:is_typing, true)
+      |> assign(:error_message, nil)
+      |> assign_async(:processing_message, fn ->
+        process_message(conversation, message)
+      end)
 
-        # Start async processing
-        socket =
-          socket
-          |> assign(:messages, messages)
-          |> assign(:message_input, "")
-          |> assign(:is_typing, true)
-          |> assign_async(:processing_message, fn ->
-            process_message(conversation, message)
-          end)
-
-        {:noreply, socket}
-
-#      {:error, {:rate_limited, reset_in}} ->
-#        {:noreply,
-#          socket
-#          |> put_flash(:error, "You're sending messages too quickly. Please wait #{ceil(reset_in / 1000)} seconds.")
-#          |> clear_flash_after(5000)}
-#    end
+    {:noreply, socket}
   end
 
   @impl true
@@ -168,7 +161,12 @@ defmodule JumpAgentWeb.ChatLive do
   end
 
   @impl true
-  def handle_async(:processing_message, {:ok, ai_message}, socket) do
+  def handle_event("dismiss_error", _params, socket) do
+    {:noreply, assign(socket, :error_message, nil)}
+  end
+
+  @impl true
+  def handle_async(:processing_message, {:ok, {:ok, ai_message}}, socket) do
     messages = socket.assigns.messages ++ [ai_message]
 
     {:noreply,
@@ -178,36 +176,30 @@ defmodule JumpAgentWeb.ChatLive do
   end
 
   @impl true
-  def handle_async(:processing_message, {:error, _reason}, socket) do
-    # Create error message
-    error_message = %Message{
-      id: Ecto.UUID.generate(),
-      role: "assistant",
-      content: "I'm having trouble processing your request. Please try again.",
-      conversation_id: socket.assigns.current_conversation.id,
-      user_id: socket.assigns.current_user.id,
-      inserted_at: DateTime.utc_now()
-    }
+  def handle_async(:processing_message, {:ok, {:error, error_msg}}, socket) do
+    # Show the specific error message
+    {:noreply,
+      socket
+      |> assign(:is_typing, false)
+      |> assign(:error_message, error_msg)}
+  end
 
-    messages = socket.assigns.messages ++ [error_message]
+  @impl true
+  def handle_async(:processing_message, {:exit, reason}, socket) do
+    # Handle process crash
+    error_msg = "The AI service crashed. Please try again. Error: #{inspect(reason)}"
 
     {:noreply,
       socket
-      |> assign(:messages, messages)
-      |> assign(:is_typing, false)}
+      |> assign(:is_typing, false)
+      |> assign(:error_message, error_msg)}
   end
 
   defp process_message(conversation, message) do
     case AI.process_user_message(conversation, message) do
-      {:ok, ai_message} -> ai_message
+      {:ok, ai_message} -> {:ok, ai_message}
       {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp clear_flash_after(socket, delay) do
-    if socket.assigns[:flash_timer], do: Process.cancel_timer(socket.assigns.flash_timer)
-    timer = Process.send_after(self(), :clear_flash, delay)
-    assign(socket, :flash_timer, timer)
   end
 
   @impl true
@@ -242,7 +234,7 @@ defmodule JumpAgentWeb.ChatLive do
         <div class="relative bg-white rounded-lg shadow-xl w-full max-w-md h-[600px] flex flex-col">
           <!-- Header -->
           <div class="flex items-center justify-between p-4 border-b">
-            <h2 class="text-lg font-semibold">Ask Anything</h2>
+            <h2 class="text-lg font-semibold">AI Assistant</h2>
             <button
               phx-click="close_modal"
               class="text-gray-400 hover:text-gray-500"
@@ -251,6 +243,32 @@ defmodule JumpAgentWeb.ChatLive do
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
               </svg>
             </button>
+          </div>
+
+          <!-- Error Banner -->
+          <div :if={@error_message} class="bg-red-50 border-b border-red-200 px-4 py-3">
+            <div class="flex items-start">
+              <div class="flex-shrink-0">
+                <svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                </svg>
+              </div>
+              <div class="ml-3 flex-1">
+                <p class="text-sm text-red-700">
+                  <%= @error_message %>
+                </p>
+              </div>
+              <div class="ml-auto pl-3">
+                <button
+                  phx-click="dismiss_error"
+                  class="inline-flex text-red-400 hover:text-red-500"
+                >
+                  <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Tabs -->
@@ -287,7 +305,7 @@ defmodule JumpAgentWeb.ChatLive do
               <div class="flex flex-col h-full">
                 <!-- Context Banner -->
                 <div class="px-4 py-2 bg-gray-50 text-sm text-gray-600">
-                  Context set to <%= @context_source %>
+                  Context: <%= @context_source %>
                   <span class="text-gray-400 ml-2">
                     <%= Calendar.strftime(@current_conversation.inserted_at, "%I:%M%P - %b %d, %Y") %>
                   </span>
@@ -298,7 +316,10 @@ defmodule JumpAgentWeb.ChatLive do
                   <%= if @messages == [] do %>
                     <div class="text-center text-gray-500 mt-8">
                       <p class="text-lg font-medium mb-2">
-                        I can answer questions about any Jump meeting. What do you want to know?
+                        Hello! I'm your AI assistant.
+                      </p>
+                      <p class="text-sm">
+                        I can help you search emails, manage contacts, schedule meetings, and more. What can I help you with today?
                       </p>
                     </div>
                   <% end %>
@@ -332,35 +353,18 @@ defmodule JumpAgentWeb.ChatLive do
                         name="message"
                         value={@message_input}
                         phx-change="update_message"
-                        placeholder="Ask anything about your meetings..."
+                        placeholder="Type your message..."
                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand resize-none"
                         rows="2"
+                        disabled={@is_typing}
                       ></textarea>
                     </div>
                     <div class="flex items-center space-x-2">
-                      <div class="relative">
-                        <select
-                          phx-change="change_context"
-                          name="context"
-                          class="appearance-none bg-gray-100 border border-gray-300 rounded-lg pl-3 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
-                        >
-                          <option value="all_meetings" selected={@context_source == "all_meetings"}>All meetings</option>
-                          <option value="gmail" selected={@context_source == "gmail"}>Gmail only</option>
-                          <option value="hubspot" selected={@context_source == "hubspot"}>HubSpot only</option>
-                          <option value="calendar" selected={@context_source == "calendar"}>Calendar only</option>
-                        </select>
-                        <div class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                          <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                          </svg>
-                        </div>
-                      </div>
-                      <button type="button" class="p-2 text-gray-500 hover:text-gray-700">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-                        </svg>
-                      </button>
-                      <button type="submit" class="p-2 text-gray-500 hover:text-gray-700">
+                      <button
+                        type="submit"
+                        class="p-2 text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                        disabled={@is_typing}
+                      >
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
                         </svg>
@@ -371,7 +375,7 @@ defmodule JumpAgentWeb.ChatLive do
               </div>
             <% else %>
               <!-- History View -->
-              <div class="p-4 space-y-2">
+              <div class="p-4 space-y-2 overflow-y-auto">
                 <%= for conversation <- @conversations do %>
                   <button
                     phx-click="select_conversation"

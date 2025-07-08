@@ -51,11 +51,17 @@ defmodule JumpAgentWeb.AuthController do
         # Store tokens if available
         token_result =
           if auth.credentials do
+            # Ensure we have valid expiry time
             expires_at =
               if auth.credentials.expires_at do
-                auth.credentials.expires_at
-                |> DateTime.from_unix!()
-                |> DateTime.truncate(:second)
+                case DateTime.from_unix(auth.credentials.expires_at) do
+                  {:ok, dt} -> DateTime.truncate(dt, :second)
+                  {:error, _} ->
+                    # Fallback if expires_at is not a valid unix timestamp
+                    DateTime.utc_now()
+                    |> DateTime.add(3600, :second)
+                    |> DateTime.truncate(:second)
+                end
               else
                 # Default to 1 hour if no expiry provided
                 DateTime.utc_now()
@@ -63,13 +69,23 @@ defmodule JumpAgentWeb.AuthController do
                 |> DateTime.truncate(:second)
               end
 
-            Accounts.update_user_tokens(
-              user,
-              auth.credentials.token,
-              auth.credentials.refresh_token,
-              expires_at
-            )
+            # Make sure we have the tokens
+            access_token = auth.credentials.token
+            refresh_token = auth.credentials.refresh_token
+
+            if access_token && refresh_token do
+              Accounts.update_user_tokens(
+                user,
+                access_token,
+                refresh_token,
+                expires_at
+              )
+            else
+              Logger.warning("Missing tokens in OAuth response")
+              {:ok, user}
+            end
           else
+            Logger.warning("No credentials in OAuth response")
             {:ok, user}
           end
 

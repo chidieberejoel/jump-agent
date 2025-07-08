@@ -1,3 +1,4 @@
+# Fix 1: Update lib/jump_agent/accounts.ex to remove duplicate function and fix token handling
 defmodule JumpAgent.Accounts do
   @moduledoc """
   The Accounts context.
@@ -64,24 +65,35 @@ defmodule JumpAgent.Accounts do
   end
 
   @doc """
-  Updates the user's refresh token.
+  Updates the user's Google OAuth tokens.
   """
   def update_user_tokens(user, access_token, refresh_token, expires_at) do
+    # Ensure we have valid tokens
+    attrs = %{}
+
+    attrs = if access_token && access_token != "",
+               do: Map.put(attrs, :google_access_token, access_token),
+               else: attrs
+
+    attrs = if refresh_token && refresh_token != "",
+               do: Map.put(attrs, :google_refresh_token, refresh_token),
+               else: attrs
+
+    attrs = Map.put(attrs, :google_token_expires_at, expires_at)
+
     user
-    |> User.token_changeset(%{
-      google_access_token: access_token,
-      google_refresh_token: refresh_token,
-      google_token_expires_at: expires_at
-    })
+    |> User.token_changeset(attrs)
     |> Repo.update()
   end
 
   @doc """
   Check if user's token is expired
   """
-  def token_expired?(%User{google_token_expires_at: nil}), do: false
+  def token_expired?(%User{google_token_expires_at: nil}), do: true
   def token_expired?(%User{google_token_expires_at: expires_at}) do
-    DateTime.compare(expires_at, DateTime.utc_now()) == :lt
+    # Add a 5-minute buffer to handle clock skew
+    buffer_time = DateTime.add(DateTime.utc_now(), 300, :second)
+    DateTime.compare(expires_at, buffer_time) == :lt
   end
 
   @doc """
@@ -89,13 +101,6 @@ defmodule JumpAgent.Accounts do
   """
   def get_access_token(%User{} = user) do
     User.decrypted_access_token(user)
-  end
-
-  @doc """
-  Get decrypted refresh token
-  """
-  def get_refresh_token(%User{} = user) do
-    User.decrypted_refresh_token(user)
   end
 
   @doc """
@@ -122,16 +127,20 @@ defmodule JumpAgent.Accounts do
     Repo.all(User)
   end
 
-#  @doc """
-#  Returns an `%Ecto.Changeset{}` for tracking user changes.
-#
-#  ## Examples
-#
-#      iex> change_user(user)
-#      %Ecto.Changeset{data: %User{}}
-#
-#  """
-#  def change_user(%User{} = user, attrs \\ %{}) do
-#    User.changeset(user, attrs)
-#  end
+  @doc """
+  Clears expired tokens for a user (for security)
+  """
+  def clear_expired_tokens(%User{} = user) do
+    if token_expired?(user) do
+      user
+      |> User.token_changeset(%{
+        google_access_token: nil,
+        google_token_expires_at: nil
+      })
+      |> Repo.update()
+    else
+      {:ok, user}
+    end
+  end
 end
+

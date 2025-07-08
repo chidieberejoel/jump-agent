@@ -204,7 +204,10 @@ defmodule JumpAgent.AI do
       if Map.has_key?(attrs, :content) && !Map.has_key?(attrs, :embedding) do
         case EmbeddingService.generate_embedding(attrs.content) do
           {:ok, embedding} -> Map.put(attrs, :embedding, embedding)
-          {:error, _} -> attrs
+          {:error, reason} ->
+            Logger.warning("Failed to generate embedding for document: #{inspect(reason)}")
+            # Continue without embedding - the document will be saved but won't be searchable
+            attrs
         end
       else
         attrs
@@ -226,11 +229,23 @@ defmodule JumpAgent.AI do
     threshold = Keyword.get(opts, :threshold, 0.7)
     source_types = Keyword.get(opts, :source_types, nil)
 
-    case EmbeddingService.generate_embedding(query_text) do
-      {:ok, query_embedding} ->
-        VectorSearch.search_documents(user.id, query_embedding, limit, threshold, source_types)
-      {:error, reason} ->
-        Logger.error("Failed to generate query embedding: #{inspect(reason)}")
+    try do
+      case EmbeddingService.generate_embedding(query_text) do
+        {:ok, query_embedding} ->
+          VectorSearch.search_documents(user.id, query_embedding, limit, threshold, source_types)
+        {:error, :no_api_key} ->
+          Logger.warning("Embeddings disabled: OpenAI API key not configured")
+          []
+        {:error, reason} ->
+          Logger.error("Failed to generate query embedding: #{inspect(reason)}")
+          []
+      end
+    catch
+      :exit, {:noproc, _} ->
+        Logger.warning("OpenAI client not available for embeddings")
+        []
+      :exit, reason ->
+        Logger.error("Embedding generation crashed: #{inspect(reason)}")
         []
     end
   end
