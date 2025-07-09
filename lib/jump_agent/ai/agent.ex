@@ -87,54 +87,66 @@ defmodule JumpAgent.AI.Agent do
   # Private functions
 
   defp process_with_langchain(messages, functions, user) do
-    case LangchainService.create_chat_model() do
+    # Use the existing LangchainService function that properly handles messages
+    case LangchainService.process_message_with_tools(messages, functions) do
+      {:ok, %LangChain.Message{} = message} ->
+        # Direct message response
+        handle_langchain_response(message, user)
+
+      {:ok, %LangChain.Chains.LLMChain{} = chain} ->
+        # Chain response - get the last message
+        last_message = List.last(chain.messages)
+        handle_langchain_response(last_message, user)
+
+      {:ok, response} when is_binary(response) ->
+        # String response - convert to message
+        {:ok, Message.new_assistant(response)}
+
       {:error, :no_api_key} ->
         {:error, :no_api_key}
 
-      chat_model ->
-        # Run the chain with function support
-        chain = LangChain.Chains.LLMChain.new!(%{
-          llm: chat_model,
-          verbose: false
-        })
+      {:error, :langchain_error} ->
+        {:error, "Failed to process message with AI. Please try again."}
 
-        # Run and handle function calls
-        case LangChain.Chains.LLMChain.run(chain, messages: messages, functions: functions) do
-          {:ok, response} ->
-            handle_langchain_response(response, user)
-
-          {:error, reason} ->
-            {:error, reason}
-
-          # Handle streaming responses if needed
-          %LangChain.MessageDelta{} = delta ->
-            # For now, we'll accumulate streaming responses
-            # In the future, we can stream to LiveView
-            {:ok, Message.new_assistant(delta.content || "")}
-        end
+      {:error, reason} ->
+        Logger.error("Langchain processing failed: #{inspect(reason)}")
+        {:error, format_error_message(reason)}
     end
   end
 
   defp handle_langchain_response(response, user) when is_struct(response, LangChain.Message) do
-    # Check if there are function calls
-    if response.function_calls && length(response.function_calls) > 0 do
-      # Execute function calls
-      function_results = Enum.map(response.function_calls, fn function_call ->
-        execute_function_call(function_call, user)
+    # Check if there are tool calls (not function_calls)
+    if response.tool_calls && length(response.tool_calls) > 0 do
+      # Execute tool calls
+      function_results = Enum.map(response.tool_calls, fn tool_call ->
+        execute_function_call(tool_call, user)
       end)
 
       # For now, return the response with function results appended
       # In a real implementation, you might want to send these back to the LLM
       content = build_response_with_results(response.content, function_results)
-      {:ok, Message.new_assistant(content)}
+
+      # Create a new assistant message with the content
+      assistant_msg = case Message.new_assistant(content) do
+        {:ok, msg} -> msg
+        msg -> msg
+      end
+
+      {:ok, assistant_msg}
     else
+      # No tool calls, return the response as is
       {:ok, response}
     end
   end
 
   defp handle_langchain_response(response, _user) do
     # Handle other response types
-    {:ok, Message.new_assistant(to_string(response))}
+    content = to_string(response)
+    assistant_msg = case Message.new_assistant(content) do
+      {:ok, msg} -> msg
+      msg -> msg
+    end
+    {:ok, assistant_msg}
   end
 
   defp execute_function_call(%ToolCall{name: name, arguments: args}, user) do
@@ -228,7 +240,12 @@ defmodule JumpAgent.AI.Agent do
     # Add context from relevant documents if available
     messages = if relevant_docs != [] do
       doc_context = build_document_context(relevant_docs)
-      messages ++ [Message.new_system("Relevant context from your data:\n#{doc_context}")]
+      # Handle the tuple return from Message.new_system
+      system_msg = case Message.new_system("Relevant context from your data:\n#{doc_context}") do
+        {:ok, msg} -> msg
+        msg -> msg
+      end
+      messages ++ [system_msg]
     else
       messages
     end
@@ -241,17 +258,48 @@ defmodule JumpAgent.AI.Agent do
     messages = messages ++ history_messages
 
     # Add the new user message
-    messages ++ [Message.new_user(new_message)]
+    # Handle the tuple return from Message.new_user
+    user_msg = case Message.new_user(new_message) do
+      {:ok, msg} -> msg
+      msg -> msg
+    end
+
+    messages ++ [user_msg]
   end
 
   defp convert_to_langchain_message(%{role: "system", content: content}) do
-    Message.new_system(content)
+    case Message.new_system(content) do
+      {:ok, message} -> message
+      message -> message  # In case it returns the message directly
+    end
   end
+
   defp convert_to_langchain_message(%{role: "user", content: content}) do
-    Message.new_user(content)
+    case Message.new_user(content) do
+      {:ok, message} -> message
+      message -> message
+    end
   end
+
   defp convert_to_langchain_message(%{role: "assistant", content: content}) do
-    Message.new_assistant(content)
+    case Message.new_assistant(content) do
+      {:ok, message} -> message
+      message -> message
+    end
+  end
+
+  # Also add this catch-all for other message types
+  defp convert_to_langchain_message(%{"role" => role, "content" => content}) do
+    convert_to_langchain_message(%{role: role, content: content})
+  end
+
+  defp convert_to_langchain_message(msg) do
+    Logger.warning("Unknown message format: #{inspect(msg)}")
+    # Default to user message
+    case Message.new_user(inspect(msg)) do
+      {:ok, message} -> message
+      message -> message
+    end
   end
 
   defp build_document_context(docs) do

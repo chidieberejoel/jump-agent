@@ -12,7 +12,8 @@ defmodule JumpAgent.AI.LangchainService do
   alias JumpAgent.Accounts.User
   require Logger
 
-  @model "gpt-4-turbo"
+  # Use gpt-4.1-mini-2025-04-14 as default, but allow configuration via environment variable
+  @default_model "gpt-4.1-mini-2025-04-14"
   @temperature 0.7
   @max_tokens 1000
 
@@ -42,7 +43,11 @@ defmodule JumpAgent.AI.LangchainService do
     if is_nil(api_key) || api_key == "" do
       {:error, :no_api_key}
     else
-      model = Keyword.get(opts, :model, @model)
+      # Get model from opts, env, or use default
+      model = Keyword.get(opts, :model) ||
+        System.get_env("OPENAI_MODEL") ||
+        @default_model
+
       temperature = Keyword.get(opts, :temperature, @temperature)
 
       ChatOpenAI.new!(%{
@@ -81,18 +86,49 @@ defmodule JumpAgent.AI.LangchainService do
         # Add system message if not present
         messages = ensure_system_message(messages)
 
-        # Run the chain with functions
+        # Create a chain instance with the chat model
         try do
-          result = LLMChain.run(chat_model,
-            messages: messages,
-            functions: functions,
-            function_call: "auto"
-          )
+          # Create the chain with the llm and tools
+          chain_opts = %{
+            llm: chat_model,
+            verbose: false
+          }
 
-          {:ok, result}
+          # Add tools if provided
+          chain_opts = if functions && length(functions) > 0 do
+            Map.put(chain_opts, :tools, functions)
+          else
+            chain_opts
+          end
+
+          chain = LLMChain.new!(chain_opts)
+
+          # Add all messages to the chain
+          chain_with_messages =
+            Enum.reduce(messages, chain, fn message, acc ->
+              LangChain.Chains.LLMChain.add_message(acc, message)
+            end)
+
+          # Run the chain
+          case LangChain.Chains.LLMChain.run(chain_with_messages) do
+            {:ok, updated_chain} ->
+              # Get the last message from the chain
+              last_message = List.last(updated_chain.messages)
+              {:ok, last_message}
+
+            {:error, reason} ->
+              Logger.error("LangChain run error: #{inspect(reason)}")
+              {:error, :langchain_error}
+
+            # Sometimes errors come as a different pattern
+            error ->
+              Logger.error("Unexpected LangChain response: #{inspect(error)}")
+              {:error, :langchain_error}
+          end
         rescue
           e ->
             Logger.error("Langchain error: #{inspect(e)}")
+            Logger.error(Exception.format(:error, e, __STACKTRACE__))
             {:error, :langchain_error}
         end
     end
@@ -401,16 +437,26 @@ defmodule JumpAgent.AI.LangchainService do
     })
   end
 
+  # In lib/jump_agent/ai/langchain_service.ex - replace these functions:
+
   defp ensure_system_message(messages) do
-    has_system = Enum.any?(messages, fn msg ->
-      (is_map(msg) && msg.role == "system") ||
-        (is_struct(msg) && msg.__struct__ == Message && msg.role == :system)
+    # Convert all messages to LangChain Message structs first
+    langchain_messages = to_langchain_messages(messages)
+
+    # Check if we already have a system message
+    has_system = Enum.any?(langchain_messages, fn msg ->
+      msg.role == :system
     end)
 
     if has_system do
-      messages
+      langchain_messages
     else
-      [Message.new_system(@system_prompt) | messages]
+      # Create system message
+      system_msg = case Message.new_system(@system_prompt) do
+        {:ok, msg} -> msg
+        msg -> msg
+      end
+      [system_msg | langchain_messages]
     end
   end
 
@@ -421,17 +467,39 @@ defmodule JumpAgent.AI.LangchainService do
     Enum.map(messages, &to_langchain_message/1)
   end
 
+  defp to_langchain_message(%LangChain.Message{} = msg), do: msg
+
   defp to_langchain_message(%{role: "system", content: content}) do
-    Message.new_system(content)
+    case Message.new_system(content) do
+      {:ok, message} -> message
+      message -> message
+    end
   end
+
   defp to_langchain_message(%{role: "user", content: content}) do
-    Message.new_user(content)
+    case Message.new_user(content) do
+      {:ok, message} -> message
+      message -> message
+    end
   end
+
   defp to_langchain_message(%{role: "assistant", content: content}) do
-    Message.new_assistant(content)
+    case Message.new_assistant(content) do
+      {:ok, message} -> message
+      message -> message
+    end
   end
+
   defp to_langchain_message(%{"role" => role, "content" => content}) do
     to_langchain_message(%{role: role, content: content})
   end
-  defp to_langchain_message(msg), do: msg
+
+  defp to_langchain_message(msg) do
+    Logger.warning("Unknown message format: #{inspect(msg)}")
+    # Try to convert to a user message as a fallback
+    case Message.new_user(inspect(msg)) do
+      {:ok, message} -> message
+      message -> message
+    end
+  end
 end

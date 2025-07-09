@@ -134,7 +134,9 @@ defmodule JumpAgentWeb.ChatLive do
       |> assign(:is_typing, true)
       |> assign(:error_message, nil)
       |> assign_async(:processing_message, fn ->
-        process_message(conversation, message)
+        # Process the message and return a map
+        result = process_message(conversation, message)
+        {:ok, %{processing_message: result}}
       end)
 
     {:noreply, socket}
@@ -166,18 +168,20 @@ defmodule JumpAgentWeb.ChatLive do
   end
 
   @impl true
-  def handle_async(:processing_message, {:ok, {:ok, ai_message}}, socket) do
+  def handle_async(:processing_message, {:ok, %{processing_message: {:ok, ai_message}}}, socket) do
+    # Add the AI message to the messages list
     messages = socket.assigns.messages ++ [ai_message]
 
     {:noreply,
       socket
       |> assign(:messages, messages)
-      |> assign(:is_typing, false)}
+      |> assign(:is_typing, false)
+      |> assign(:error_message, nil)}
   end
 
   @impl true
-  def handle_async(:processing_message, {:ok, {:error, error_msg}}, socket) do
-    # Show the specific error message
+  def handle_async(:processing_message, {:ok, %{processing_message: {:error, error_msg}}}, socket) do
+    # Show the error message
     {:noreply,
       socket
       |> assign(:is_typing, false)
