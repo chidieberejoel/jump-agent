@@ -90,8 +90,9 @@ defmodule JumpAgent.Repo.Migrations.CreateAiAgentSchema do
       timestamps(type: :utc_datetime)
     end
 
+#    TODO; Revert
     create index(:document_embeddings, [:user_id, :source_type])
-    create unique_index(:document_embeddings, [:user_id, :source_type, :source_id])
+#    create unique_index(:document_embeddings, [:user_id, :source_type, :source_id])
 
     # Create a custom index for vector similarity search
     execute """
