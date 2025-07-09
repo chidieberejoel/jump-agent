@@ -73,16 +73,17 @@ config :jump_agent,
   hubspot_client_id: System.get_env("HUBSPOT_CLIENT_ID"),
   hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET")
 
-# Configure OpenAI
-config :openai_ex,
-       api_key: System.get_env("OPENAI_API_KEY"),
-       http_options: [recv_timeout: 30_000]
+# Configure Langchain
+config :langchain,
+       openai_api_key: System.get_env("OPENAI_API_KEY"),
+       default_timeout: System.get_env("LANGCHAIN_DEFAULT_TIMEOUT", "30000") |> String.to_integer()
 
 # Token encryption key - generate with: :crypto.strong_rand_bytes(32) |> Base.encode64()
 # Example key (DO NOT USE IN PRODUCTION):
 config :jump_agent, :token_encryption_key,
   (System.get_env("TOKEN_ENCRYPTION_KEY") && Base.decode64!(System.get_env("TOKEN_ENCRYPTION_KEY"))) ||
   Base.decode64!("QE3RmNXk9ooICesIbmwN2Ixy1bJMTKstE8UuDo+9Crc=")
+
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"

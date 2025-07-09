@@ -100,14 +100,14 @@ if config_env() == :prod do
       You can get it from HubSpot App Settings.
       """)
 
-    # Configure OpenAI
-    config :openai_ex,
-       api_key: System.get_env("OPENAI_API_KEY") ||
-         raise("""
-         environment variable OPENAI_API_KEY is missing.
-         You can get it from OpenAI Dashboard.
-         """),
-       http_options: [recv_timeout: 60_000]
+  # Configure Langchain
+  config :langchain,
+         openai_api_key: System.get_env("OPENAI_API_KEY") ||
+           raise("""
+           environment variable OPENAI_API_KEY is missing.
+           You can get it from OpenAI Dashboard.
+           """),
+         default_timeout: System.get_env("LANGCHAIN_DEFAULT_TIMEOUT", "60000") |> String.to_integer()
 
     # Configure webhook verification token
     config :jump_agent,

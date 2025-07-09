@@ -6,7 +6,7 @@ defmodule JumpAgent.ConfigHelper do
   def check_all do
     IO.puts("\n=== JumpAgent Configuration Check ===\n")
 
-    check_openai()
+    check_langchain()
     check_google()
     check_hubspot()
     check_database()
@@ -15,10 +15,10 @@ defmodule JumpAgent.ConfigHelper do
     IO.puts("\n=== End of Configuration Check ===\n")
   end
 
-  def check_openai do
-    IO.puts("📋 OpenAI Configuration:")
+  def check_langchain do
+    IO.puts("📋 Langchain/OpenAI Configuration:")
 
-    api_key = Application.get_env(:openai_ex, :api_key)
+    api_key = Application.get_env(:langchain, :openai_api_key)
 
     if is_nil(api_key) || api_key == "" do
       IO.puts("  ❌ API Key: NOT SET")
@@ -28,10 +28,13 @@ defmodule JumpAgent.ConfigHelper do
       IO.puts("  ✅ API Key: #{masked_key}")
     end
 
-    if Process.whereis(JumpAgent.AI.OpenAIClient) do
-      IO.puts("  ✅ Client Process: Running")
-    else
-      IO.puts("  ❌ Client Process: Not Running")
+    # Check if Langchain is properly configured
+    try do
+      LangChain.ChatModels.ChatOpenAI.new!(%{api_key: api_key || "test", model: "gpt-4"})
+      IO.puts("  ✅ Langchain: Configured")
+    rescue
+      _ ->
+        IO.puts("  ❌ Langchain: Configuration Error")
     end
 
     IO.puts("")
@@ -105,7 +108,6 @@ defmodule JumpAgent.ConfigHelper do
     IO.puts("📋 Application Processes:")
 
     processes = [
-      {JumpAgent.AI.OpenAIClient, "OpenAI Client"},
       {JumpAgent.AI.Metrics, "AI Metrics"},
       {Oban, "Background Jobs"},
       {JumpAgent.Finch, "HTTP Client"}

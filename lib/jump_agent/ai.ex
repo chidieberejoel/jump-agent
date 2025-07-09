@@ -194,7 +194,7 @@ defmodule JumpAgent.AI do
   # Document Embeddings
 
   @doc """
-  Creates or updates a document embedding.
+  Creates or updates a document embedding using Langchain.
   """
   def upsert_document_embedding(user, attrs) do
     attrs = Map.put(attrs, :user_id, user.id)
@@ -202,6 +202,7 @@ defmodule JumpAgent.AI do
     # Generate embedding if content is provided but embedding is not
     attrs =
       if Map.has_key?(attrs, :content) && !Map.has_key?(attrs, :embedding) do
+        # Use Langchain's embedding service
         case EmbeddingService.generate_embedding(attrs.content) do
           {:ok, embedding} -> Map.put(attrs, :embedding, embedding)
           {:error, reason} ->

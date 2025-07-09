@@ -1,33 +1,17 @@
 defmodule JumpAgent.AI.Agent do
   @moduledoc """
-  The core AI agent that processes messages and executes tasks.
+  The core AI agent that processes messages using Langchain.
   """
 
   alias JumpAgent.AI
-  alias JumpAgent.AI.{Tools, EmbeddingService, VectorSearch}
+  alias JumpAgent.AI.{LangchainService, LangchainFunctionExecutor}
   alias JumpAgent.Accounts
+  alias LangChain.Message
+  alias LangChain.Message.ToolCall
   require Logger
 
-  # Use a valid OpenAI model
-  @openai_model "gpt-4-turbo"
-  @system_prompt """
-  You are an intelligent assistant for financial advisors and communications.
-  You have access to the user's Gmail, Google Calendar, and HubSpot CRM.
-
-  Your capabilities include:
-  - Searching through emails and CRM data to answer questions
-  - Scheduling meetings and managing calendar events
-  - Sending emails on behalf of the user
-  - Creating and updating contacts in HubSpot
-  - Adding notes to HubSpot contacts
-  - Following ongoing instructions set by the user
-
-  Always be helpful, concise, and proactive. When executing tasks, provide clear updates
-  on what you're doing. If you need more information to complete a task, ask for it.
-  """
-
   @doc """
-  Processes a user message and generates a response.
+  Processes a user message and generates a response using Langchain.
   """
   def process_message(conversation, message_content) do
     start_time = System.monotonic_time(:millisecond)
@@ -37,36 +21,36 @@ defmodule JumpAgent.AI.Agent do
       # Get conversation context
       context = AI.get_conversation_context(conversation)
 
-      # Try to search for relevant documents, but don't fail if embeddings are unavailable
+      # Try to search for relevant documents
       relevant_docs = try_search_documents(user, message_content)
 
-      # Build messages for OpenAI
-      messages = build_messages(context, message_content, relevant_docs)
+      # Build messages for Langchain
+      messages = build_langchain_messages(context, message_content, relevant_docs)
 
-      # Get available tools - for now, let's disable tools to test basic chat
-      # tools = Tools.available_tools()
-      tools = nil
+      # Get available tool functions
+      functions = LangchainService.get_tool_functions()
 
-      # Call OpenAI
-      case call_openai(messages, tools) do
+      # Process message with Langchain
+      case process_with_langchain(messages, functions, user) do
         {:ok, response} ->
           duration = System.monotonic_time(:millisecond) - start_time
           AI.Metrics.track_request(user.id, "chat_completion", duration)
-          process_openai_response(conversation, response)
+
+          # Save the assistant message
+          {:ok, ai_message} = AI.create_message(conversation, %{
+            role: "assistant",
+            content: response.content,
+            tool_calls: []  # Will be updated when we handle function calls
+          })
+
+          {:ok, ai_message}
 
         {:error, reason} ->
           duration = System.monotonic_time(:millisecond) - start_time
           AI.Metrics.track_error(user.id, "chat_completion", reason)
-          Logger.error("OpenAI call failed: #{inspect(reason)}")
+          Logger.error("Langchain processing failed: #{inspect(reason)}")
 
-          # Create a more informative error message
-          error_msg = case reason do
-            {:api_error, msg} -> "API Error: #{msg}"
-            :no_api_key -> "OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable."
-            :timeout -> "The request timed out. Please try again."
-            _ -> "I'm having trouble processing your request. Please check the logs for more details."
-          end
-
+          error_msg = format_error_message(reason)
           {:error, error_msg}
       end
     rescue
@@ -74,7 +58,7 @@ defmodule JumpAgent.AI.Agent do
         AI.Metrics.track_error(user.id, "chat_completion", error)
         Logger.error("Error processing message: #{inspect(error)}")
         Logger.error(Exception.format(:error, error, __STACKTRACE__))
-        {:error, "An unexpected error occurred: #{inspect(error)}. Please check the server logs."}
+        {:error, "An unexpected error occurred: #{Exception.message(error)}"}
     end
   end
 
@@ -100,6 +84,127 @@ defmodule JumpAgent.AI.Agent do
     end
   end
 
+  # Private functions
+
+  defp process_with_langchain(messages, functions, user) do
+    case LangchainService.create_chat_model() do
+      {:error, :no_api_key} ->
+        {:error, :no_api_key}
+
+      chat_model ->
+        # Run the chain with function support
+        chain = LangChain.Chains.LLMChain.new!(%{
+          llm: chat_model,
+          verbose: false
+        })
+
+        # Run and handle function calls
+        case LangChain.Chains.LLMChain.run(chain, messages: messages, functions: functions) do
+          {:ok, response} ->
+            handle_langchain_response(response, user)
+
+          {:error, reason} ->
+            {:error, reason}
+
+          # Handle streaming responses if needed
+          %LangChain.MessageDelta{} = delta ->
+            # For now, we'll accumulate streaming responses
+            # In the future, we can stream to LiveView
+            {:ok, Message.new_assistant(delta.content || "")}
+        end
+    end
+  end
+
+  defp handle_langchain_response(response, user) when is_struct(response, LangChain.Message) do
+    # Check if there are function calls
+    if response.function_calls && length(response.function_calls) > 0 do
+      # Execute function calls
+      function_results = Enum.map(response.function_calls, fn function_call ->
+        execute_function_call(function_call, user)
+      end)
+
+      # For now, return the response with function results appended
+      # In a real implementation, you might want to send these back to the LLM
+      content = build_response_with_results(response.content, function_results)
+      {:ok, Message.new_assistant(content)}
+    else
+      {:ok, response}
+    end
+  end
+
+  defp handle_langchain_response(response, _user) do
+    # Handle other response types
+    {:ok, Message.new_assistant(to_string(response))}
+  end
+
+  defp execute_function_call(%ToolCall{name: name, arguments: args}, user) do
+    # Parse arguments if they're a JSON string
+    arguments = case args do
+      args when is_binary(args) ->
+        case Jason.decode(args) do
+          {:ok, parsed} -> parsed
+          _ -> %{}
+        end
+      args when is_map(args) -> args
+      _ -> %{}
+    end
+
+    case LangchainFunctionExecutor.execute_function(name, arguments, user) do
+      {:ok, result} ->
+        %{function: name, status: "success", result: result}
+
+      {:error, error} ->
+        %{function: name, status: "error", error: error}
+    end
+  end
+
+  defp build_response_with_results(nil, function_results), do: build_response_with_results("", function_results)
+  defp build_response_with_results(content, []), do: content
+  defp build_response_with_results(content, function_results) do
+    results_text = Enum.map(function_results, fn result ->
+      case result do
+        %{status: "success", function: func, result: data} ->
+          "\n✓ #{humanize_function_name(func)}: #{format_function_result(func, data)}"
+
+        %{status: "error", function: func, error: error} ->
+          "\n✗ #{humanize_function_name(func)} failed: #{error}"
+      end
+    end) |> Enum.join("")
+
+    if content && content != "" do
+      content <> "\n" <> results_text
+    else
+      results_text
+    end
+  end
+
+  defp humanize_function_name("search_information"), do: "Search"
+  defp humanize_function_name("send_email"), do: "Email sent"
+  defp humanize_function_name("create_calendar_event"), do: "Calendar event created"
+  defp humanize_function_name("create_contact"), do: "Contact created"
+  defp humanize_function_name("update_contact"), do: "Contact updated"
+  defp humanize_function_name("add_hubspot_note"), do: "Note added"
+  defp humanize_function_name("schedule_meeting"), do: "Meeting request sent"
+  defp humanize_function_name(name), do: name
+
+  defp format_function_result("search_information", %{"total" => total, "query" => query}) do
+    "Found #{total} results for '#{query}'"
+  end
+  defp format_function_result("send_email", %{"to" => to, "subject" => subject}) do
+    "Email '#{subject}' sent to #{to}"
+  end
+  defp format_function_result("create_calendar_event", %{"title" => title}) do
+    "'#{title}'"
+  end
+  defp format_function_result("create_contact", %{"email" => email}) do
+    "#{email}"
+  end
+  defp format_function_result("schedule_meeting", %{"contact_email" => email, "meeting_title" => title}) do
+    "Meeting '#{title}' request sent to #{email}"
+  end
+  defp format_function_result(_, %{"status" => status}), do: status
+  defp format_function_result(_, _), do: "Completed"
+
   defp try_search_documents(user, message_content) do
     try do
       case AI.search_similar_documents(user, message_content, limit: 5) do
@@ -117,28 +222,36 @@ defmodule JumpAgent.AI.Agent do
     end
   end
 
-  defp build_messages(context, new_message, relevant_docs) do
-    # Start with system message
-    messages = [%{"role" => "system", "content" => @system_prompt}]
+  defp build_langchain_messages(context, new_message, relevant_docs) do
+    messages = []
 
     # Add context from relevant documents if available
-    if relevant_docs != [] do
+    messages = if relevant_docs != [] do
       doc_context = build_document_context(relevant_docs)
-      messages = messages ++ [%{"role" => "system", "content" => "Relevant context from your data:\n#{doc_context}"}]
+      messages ++ [Message.new_system("Relevant context from your data:\n#{doc_context}")]
+    else
+      messages
     end
 
-    # Add conversation history (limit to prevent token overflow)
-    history_messages =
-      context.messages
-      |> Enum.take(-10) # Only last 10 messages to prevent token limit issues
-      |> Enum.map(fn msg ->
-        %{"role" => msg.role, "content" => msg.content}
-      end)
+    # Add conversation history
+    history_messages = context.messages
+                       |> Enum.take(-10)  # Only last 10 messages
+                       |> Enum.map(&convert_to_langchain_message/1)
 
     messages = messages ++ history_messages
 
     # Add the new user message
-    messages ++ [%{"role" => "user", "content" => new_message}]
+    messages ++ [Message.new_user(new_message)]
+  end
+
+  defp convert_to_langchain_message(%{role: "system", content: content}) do
+    Message.new_system(content)
+  end
+  defp convert_to_langchain_message(%{role: "user", content: content}) do
+    Message.new_user(content)
+  end
+  defp convert_to_langchain_message(%{role: "assistant", content: content}) do
+    Message.new_assistant(content)
   end
 
   defp build_document_context(docs) do
@@ -163,69 +276,6 @@ defmodule JumpAgent.AI.Agent do
     "Calendar Event: #{metadata["title"]} (#{metadata["date"]})"
   end
   defp format_source(type, _), do: String.capitalize(type)
-
-  defp call_openai(messages, tools) do
-    # Check if API key is configured
-    api_key = Application.get_env(:openai_ex, :api_key)
-
-    if is_nil(api_key) || api_key == "" do
-      {:error, :no_api_key}
-    else
-      JumpAgent.AI.OpenAIClient.chat_completion(messages, tools,
-        model: @openai_model,
-        temperature: 0.7,
-        max_tokens: 1000
-      )
-      |> case do
-           {:ok, %{"choices" => [%{"message" => message} | _]}} ->
-             {:ok, message}
-           {:ok, response} ->
-             Logger.error("Unexpected OpenAI response format: #{inspect(response)}")
-             {:error, {:api_error, "Unexpected response format"}}
-           {:error, reason} = error ->
-             Logger.error("OpenAI API error: #{inspect(reason)}")
-             error
-         end
-    end
-  end
-
-  defp process_openai_response(conversation, message) do
-    content = message["content"] || ""
-
-    # Save the assistant message
-    {:ok, ai_message} = AI.create_message(conversation, %{
-      role: "assistant",
-      content: content,
-      tool_calls: message["tool_calls"] || []
-    })
-
-    # Process any tool calls if they exist
-    if message["tool_calls"] && message["tool_calls"] != [] do
-      process_tool_calls(conversation, ai_message, message["tool_calls"])
-    end
-
-    {:ok, ai_message}
-  end
-
-  defp process_tool_calls(conversation, ai_message, tool_calls) do
-    user = Accounts.get_user!(conversation.user_id)
-
-    Enum.each(tool_calls, fn tool_call ->
-      # Create a task for this tool call
-      {:ok, task} = AI.create_task(user, %{
-        conversation_id: conversation.id,
-        message_id: ai_message.id,
-        type: tool_call["function"]["name"],
-        parameters: Jason.decode!(tool_call["function"]["arguments"]),
-        status: "pending"
-      })
-
-      # Queue the task for execution
-      %{task_id: task.id}
-      |> JumpAgent.Workers.TaskExecutorWorker.new()
-      |> Oban.insert()
-    end)
-  end
 
   defp check_conditions(conditions, event_data) when conditions == %{}, do: true
   defp check_conditions(conditions, event_data) do
@@ -256,5 +306,18 @@ defmodule JumpAgent.AI.Agent do
 
     Please take the appropriate action based on this instruction and event.
     """
+  end
+
+  defp format_error_message(:no_api_key) do
+    "OpenAI API key is not configured. Please set the OPENAI_API_KEY environment variable."
+  end
+  defp format_error_message({:api_error, msg}) do
+    "API Error: #{msg}"
+  end
+  defp format_error_message(:timeout) do
+    "The request timed out. Please try again."
+  end
+  defp format_error_message(error) do
+    "I'm having trouble processing your request. Error: #{inspect(error)}"
   end
 end

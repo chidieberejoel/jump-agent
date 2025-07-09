@@ -43,7 +43,7 @@ defmodule JumpAgentWeb.HealthController do
   defp perform_checks do
     %{
       database: check_database(),
-      openai: check_openai(),
+      langchain: check_langchain(),
       oban: check_oban(),
       ai_system: check_ai_system()
     }
@@ -55,15 +55,6 @@ defmodule JumpAgentWeb.HealthController do
       %{status: "healthy", message: "Database connection OK"}
     rescue
       _ -> %{status: "unhealthy", message: "Database connection failed"}
-    end
-  end
-
-  defp check_openai do
-    # Check if OpenAI client is running
-    if Process.whereis(JumpAgent.AI.OpenAIClient) do
-      %{status: "healthy", message: "OpenAI client running"}
-    else
-      %{status: "unhealthy", message: "OpenAI client not running"}
     end
   end
 
@@ -82,6 +73,17 @@ defmodule JumpAgentWeb.HealthController do
       :healthy -> %{status: "healthy", message: "AI system operating normally"}
       :degraded -> %{status: "degraded", message: "AI system experiencing elevated errors"}
       :unhealthy -> %{status: "unhealthy", message: "AI system error rate too high"}
+    end
+  end
+
+  defp check_langchain do
+    # Check if Langchain/OpenAI is configured
+    api_key = Application.get_env(:langchain, :openai_api_key)
+
+    if api_key && api_key != "" do
+      %{status: "healthy", message: "Langchain configured with OpenAI"}
+    else
+      %{status: "unhealthy", message: "OpenAI API key not configured"}
     end
   end
 end

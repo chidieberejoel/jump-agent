@@ -14,8 +14,6 @@ defmodule JumpAgent.Application do
       {Phoenix.PubSub, name: JumpAgent.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: JumpAgent.Finch},
-      # Start AI services
-      JumpAgent.AI.OpenAIClient,
       JumpAgent.AI.Metrics,
       # Start Oban for background jobs
       {Oban, oban_config()},
