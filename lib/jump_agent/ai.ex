@@ -230,7 +230,7 @@ defmodule JumpAgent.AI do
   """
   def search_similar_documents(user, query_text, opts \\ []) do
     limit = Keyword.get(opts, :limit, 10)
-    threshold = Keyword.get(opts, :threshold, 0.7)
+    threshold = Keyword.get(opts, :threshold, 0.2)  # Changed from 0.7 to 0.2
     source_types = Keyword.get(opts, :source_types, nil)
 
     try do

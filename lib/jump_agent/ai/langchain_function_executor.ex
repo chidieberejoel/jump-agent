@@ -36,6 +36,8 @@ defmodule JumpAgent.AI.LangchainFunctionExecutor do
   defp search_information(%{"query" => query} = args, user) do
     source_types = Map.get(args, "source_types", nil)
 
+    Logger.info("Searching for: #{query}")
+
     # Use EmbeddingService to generate embedding
     case EmbeddingService.generate_embedding(query) do
       {:ok, embedding} ->
@@ -43,24 +45,37 @@ defmodule JumpAgent.AI.LangchainFunctionExecutor do
           user.id,
           embedding,
           20,  # limit
-          0.7, # threshold
+          0.2, # Lower threshold since similarity scores are around 0.2-0.24
           source_types
         )
 
+        Logger.info("Found #{length(results)} results with scores: #{inspect(Enum.map(results, & &1.similarity))}")
+
         formatted_results = Enum.map(results, fn result ->
           %{
-            source: result.source_type,
-            content: result.content,
-            metadata: result.metadata,
-            similarity: result.similarity
+            # Use "source" to match what the formatter expects
+            "source" => result.source_type,
+            "content" => result.content,
+            "metadata" => result.metadata,
+            "similarity" => result.similarity,
+            "created_at" => result.created_at_source
           }
         end)
 
-        {:ok, %{"results" => formatted_results, "count" => length(formatted_results)}}
+        {:ok, %{
+          "results" => formatted_results,
+          "count" => length(results),
+          "query" => query
+        }}
 
       {:error, reason} ->
         Logger.error("Failed to generate embedding: #{inspect(reason)}")
-        {:error, "Search failed: Unable to process query"}
+        {:ok, %{
+          "results" => [],
+          "count" => 0,
+          "query" => query,
+          "error" => "Search temporarily unavailable"
+        }}
     end
   end
 

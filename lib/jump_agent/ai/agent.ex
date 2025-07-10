@@ -197,7 +197,11 @@ defmodule JumpAgent.AI.Agent do
     results_text = results
                    |> Enum.take(5)  # Show top 5 results
                    |> Enum.map_join("\n\n", fn result ->
-      source = String.capitalize(result["source"] || result[:source] || "Unknown")
+      # Handle both "source" and "source_type" keys
+      source = String.capitalize(
+        result["source"] || result["source_type"] ||
+          result[:source] || result[:source_type] || "Unknown"
+      )
       content = String.slice(result["content"] || result[:content] || "", 0, 200)
       similarity = Float.round((result["similarity"] || result[:similarity] || 0) * 100, 1)
 
@@ -214,6 +218,10 @@ defmodule JumpAgent.AI.Agent do
   defp format_function_result("search_information", %{"total" => total, "query" => query}) do
     # Fallback format
     "Found #{total} results for '#{query}'"
+  end
+
+  defp format_function_result("search_information", %{"error" => error}) do
+    "Search unavailable: #{error}"
   end
 
   defp format_function_result("send_email", %{"to" => to, "subject" => subject}) do
