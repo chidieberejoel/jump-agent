@@ -26,11 +26,14 @@ defmodule JumpAgent.AI do
   Gets a conversation by ID for a user.
   """
   def get_conversation!(user, id) do
-    Repo.get_by!(Conversation, id: id, user_id: user.id)
+#    Repo.get_by!(Conversation, id: id, user_id: user.id)
+    Conversation
+    |> where([c], c.id == ^id and c.user_id == ^user.id)
+    |> Repo.one!()
   end
 
   @doc """
-  Lists conversations for a user.
+  Lists conversations for a user, ordered by last message.
   """
   def list_conversations(user, opts \\ []) do
     limit = Keyword.get(opts, :limit, 20)
@@ -38,7 +41,7 @@ defmodule JumpAgent.AI do
     Conversation
     |> where([c], c.user_id == ^user.id)
     |> where([c], c.is_active == true)
-    |> order_by([c], desc: c.last_message_at)
+    |> order_by([c], desc: c.last_message_at, desc: c.inserted_at)
     |> limit(^limit)
     |> Repo.all()
   end

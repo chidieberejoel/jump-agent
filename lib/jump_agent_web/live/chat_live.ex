@@ -150,6 +150,101 @@ defmodule JumpAgentWeb.ChatLive do
   end
 
   @impl true
+  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :active_tab, tab)}
+  end
+
+  @impl true
+  def handle_event("new_thread", _params, socket) do
+    user = socket.assigns.current_user
+
+    {:ok, conversation} = AI.create_conversation(user, %{
+      title: "New Conversation",
+      context: %{"source" => socket.assigns.context_source}
+    })
+
+    # Add to beginning of conversations list
+    conversations = [conversation | socket.assigns.conversations]
+
+    {:noreply,
+      socket
+      |> assign(:conversations, conversations)
+      |> assign(:current_conversation, conversation)
+      |> assign(:messages, [])
+      |> assign(:message_input, "")
+      |> assign(:error_message, nil)}
+  end
+
+  @impl true
+  def handle_event("select_conversation", %{"id" => conv_id}, socket) do
+    user = socket.assigns.current_user
+    conversation = AI.get_conversation!(user, conv_id)
+    messages = AI.list_messages(conversation)
+
+    {:noreply,
+      socket
+      |> assign(:current_conversation, conversation)
+      |> assign(:messages, messages)
+      |> assign(:error_message, nil)}
+  end
+
+  @impl true
+  def handle_event("change_context", %{"context" => context}, socket) do
+    # Update conversation context
+    conversation = socket.assigns.current_conversation
+
+    {:ok, updated_conv} = AI.update_conversation(conversation, %{
+      context: Map.put(conversation.context || %{}, "source", context)
+    })
+
+    {:noreply,
+      socket
+      |> assign(:current_conversation, updated_conv)
+      |> assign(:context_source, context)}
+  end
+
+#  @impl true
+#  def handle_event("delete_conversation", %{"id" => conv_id}, socket) do
+#    user = socket.assigns.current_user
+#    conversation = AI.get_conversation!(user, conv_id)
+#
+#    {:ok, _} = AI.delete_conversation(conversation)
+#
+#    # Remove from conversations list
+#    conversations = Enum.reject(socket.assigns.conversations, &(&1.id == conv_id))
+#
+#    # If we deleted the current conversation, switch to another or create new
+#    socket = if socket.assigns.current_conversation.id == conv_id do
+#      case conversations do
+#        [first | _] ->
+#          messages = AI.list_messages(first)
+#          socket
+#          |> assign(:current_conversation, first)
+#          |> assign(:messages, messages)
+#        [] ->
+#          # Create a new conversation if none left
+#          {:ok, new_conv} = AI.create_conversation(user, %{
+#            title: "New Conversation",
+#            context: %{"source" => socket.assigns.context_source}
+#          })
+#          socket
+#          |> assign(:conversations, [new_conv])
+#          |> assign(:current_conversation, new_conv)
+#          |> assign(:messages, [])
+#      end
+#    else
+#      assign(socket, :conversations, conversations)
+#    end
+#
+#    {:noreply, socket}
+#  end
+
+  # Also add this helper function if you don't have it
+  defp format_error_message(:no_api_key), do: "OpenAI API key not configured"
+  defp format_error_message(msg) when is_binary(msg), do: msg
+  defp format_error_message(error), do: "Error: #{inspect(error)}"
+
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="relative">
@@ -254,27 +349,28 @@ defmodule JumpAgentWeb.ChatLive do
                 </div>
 
                 <!-- Messages -->
-                <div class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                <div id="messages-container" phx-hook="MessageList" class="flex-1 overflow-y-auto p-4 space-y-2">
                   <%= if @messages == [] do %>
+                    <!-- Empty state -->
                     <div class="text-center text-gray-500 mt-8">
                       <p class="text-lg font-medium mb-2">
-                        Hello! I'm your AI assistant.
+                        Start a conversation
                       </p>
                       <p class="text-sm">
-                        I can help you search emails, manage contacts, schedule meetings, and more. What can I help you with today?
+                        I'm your AI assistant. I can help you search emails, manage contacts, schedule meetings, and more.
                       </p>
                     </div>
-                  <% end %>
+                    <% end %>
 
-                  <%= for message <- @messages do %>
+                    <%= for message <- @messages do %>
                     <div id={"message-#{message.id}"} class={"flex #{if message.role == "user", do: "justify-end", else: "justify-start"}"}>
                       <div class={"max-w-[80%] #{if message.role == "user", do: "bg-brand text-white", else: "bg-gray-100"} rounded-lg px-4 py-2"}>
                         <p class="text-sm whitespace-pre-wrap"><%= message.content %></p>
                       </div>
                     </div>
-                  <% end %>
+                    <% end %>
 
-                  <%= if @is_typing do %>
+                    <%= if @is_typing do %>
                     <div class="flex justify-start">
                       <div class="bg-gray-100 rounded-lg px-4 py-2">
                         <div class="flex space-x-1">

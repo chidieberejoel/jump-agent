@@ -26,12 +26,43 @@ let Hooks = {}
 
 Hooks.MessageList = {
   mounted() {
-    console.log("MessageList hook mounted")
+    this.scrollToBottom()
+
+    this.observer = new MutationObserver((mutations) => {
+      this.scrollToBottom()
+    })
+
+    this.observer.observe(this.el, {
+      childList: true,
+      subtree: true,
+      attributes: false,
+      characterData: false
+    })
   },
+
   updated() {
-    console.log("MessageList hook updated - new messages received")
-    // Scroll to bottom when new messages arrive
+    requestAnimationFrame(() => {
+      this.scrollToBottom()
+    })
+  },
+
+  destroyed() {
+    if (this.observer) {
+      this.observer.disconnect()
+    }
+  },
+
+  scrollToBottom() {
+    const before = this.el.scrollTop
     this.el.scrollTop = this.el.scrollHeight
+    const after = this.el.scrollTop
+
+    if (after === before && this.el.scrollHeight > this.el.clientHeight) {
+      this.el.scrollTo({
+        top: this.el.scrollHeight,
+        behavior: 'smooth'
+      })
+    }
   }
 }
 
