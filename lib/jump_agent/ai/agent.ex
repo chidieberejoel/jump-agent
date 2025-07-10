@@ -192,22 +192,56 @@ defmodule JumpAgent.AI.Agent do
   defp humanize_function_name("schedule_meeting"), do: "Meeting request sent"
   defp humanize_function_name(name), do: name
 
+  defp format_function_result("search_information", %{"results" => results, "count" => count}) when count > 0 do
+    # Format the search results nicely
+    results_text = results
+                   |> Enum.take(5)  # Show top 5 results
+                   |> Enum.map_join("\n\n", fn result ->
+      source = String.capitalize(result["source"] || result[:source] || "Unknown")
+      content = String.slice(result["content"] || result[:content] || "", 0, 200)
+      similarity = Float.round((result["similarity"] || result[:similarity] || 0) * 100, 1)
+
+      "• [#{source}] (#{similarity}% match)\n  #{content}..."
+    end)
+
+    "Found #{count} results:\n\n#{results_text}"
+  end
+
+  defp format_function_result("search_information", %{"results" => _, "count" => 0}) do
+    "No results found"
+  end
+
   defp format_function_result("search_information", %{"total" => total, "query" => query}) do
+    # Fallback format
     "Found #{total} results for '#{query}'"
   end
+
   defp format_function_result("send_email", %{"to" => to, "subject" => subject}) do
     "Email '#{subject}' sent to #{to}"
   end
+
   defp format_function_result("create_calendar_event", %{"title" => title}) do
     "'#{title}'"
   end
+
   defp format_function_result("create_contact", %{"email" => email}) do
     "#{email}"
   end
+
   defp format_function_result("schedule_meeting", %{"contact_email" => email, "meeting_title" => title}) do
     "Meeting '#{title}' request sent to #{email}"
   end
+
   defp format_function_result(_, %{"status" => status}), do: status
+  defp format_function_result(_, result) when is_map(result) do
+    # Generic formatting for any other result
+    if Map.has_key?(result, "count") || Map.has_key?(result, "results") do
+      count = result["count"] || length(result["results"] || [])
+      "Found #{count} items"
+    else
+      "Completed"
+    end
+  end
   defp format_function_result(_, _), do: "Completed"
 
   defp try_search_documents(user, message_content) do

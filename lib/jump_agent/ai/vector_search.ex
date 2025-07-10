@@ -19,9 +19,7 @@ defmodule JumpAgent.AI.VectorSearch do
         _ -> raise ArgumentError, "Invalid embedding format"
       end
 
-    # Convert to string format for PostgreSQL
-    embedding_string = "[#{Enum.join(embedding_list, ",")}]"
-
+    # Pass the list directly - pgvector will handle the conversion
     base_query =
       from d in DocumentEmbedding,
            where: d.user_id == ^user_id,
@@ -32,7 +30,7 @@ defmodule JumpAgent.AI.VectorSearch do
              content: d.content,
              metadata: d.metadata,
              created_at_source: d.created_at_source,
-             similarity: fragment("1 - (? <=> ?::vector)", d.embedding, ^embedding_string)
+             similarity: fragment("1 - (? <=> ?)", d.embedding, ^embedding_list)
            }
 
     query =
@@ -43,8 +41,8 @@ defmodule JumpAgent.AI.VectorSearch do
       end
 
     query
-    |> where([d], fragment("1 - (? <=> ?::vector)", d.embedding, ^embedding_string) >= ^threshold)
-    |> order_by([d], desc: fragment("1 - (? <=> ?::vector)", d.embedding, ^embedding_string))
+    |> where([d], fragment("1 - (? <=> ?)", d.embedding, ^embedding_list) >= ^threshold)
+    |> order_by([d], desc: fragment("1 - (? <=> ?)", d.embedding, ^embedding_list))
     |> limit(^limit)
     |> Repo.all()
   end
@@ -72,10 +70,10 @@ defmodule JumpAgent.AI.VectorSearch do
         embedding_vector =
           case doc.embedding do
             list when is_list(list) ->
-              # Convert list to Pgvector - just pass the list directly
+              # Already a list - pass it directly
               list
             %Pgvector{} = vec ->
-              # Already a Pgvector, convert to list
+              # Convert Pgvector struct to list
               Pgvector.to_list(vec)
             _ ->
               raise ArgumentError, "Invalid embedding format for document"
