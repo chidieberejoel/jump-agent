@@ -4,7 +4,7 @@ defmodule JumpAgent.AI.LangchainFunctionExecutor do
   """
 
   alias JumpAgent.{GoogleAPI, HubSpotAPI, HubSpot, AI}
-  alias JumpAgent.AI.{VectorSearch, EmbeddingService, LangchainService}
+  alias JumpAgent.AI.{VectorSearch, EmbeddingService}
   require Logger
 
   @doc """
@@ -36,8 +36,8 @@ defmodule JumpAgent.AI.LangchainFunctionExecutor do
   defp search_information(%{"query" => query} = args, user) do
     source_types = Map.get(args, "source_types", nil)
 
-    # Use Langchain to generate embedding
-    case LangchainService.generate_embedding(query) do
+    # Use EmbeddingService to generate embedding
+    case EmbeddingService.generate_embedding(query) do
       {:ok, embedding} ->
         results = VectorSearch.search_documents(
           user.id,
@@ -47,17 +47,20 @@ defmodule JumpAgent.AI.LangchainFunctionExecutor do
           source_types
         )
 
-        formatted_results = Enum.map(results, &format_search_result/1)
+        formatted_results = Enum.map(results, fn result ->
+          %{
+            source: result.source_type,
+            content: result.content,
+            metadata: result.metadata,
+            similarity: result.similarity
+          }
+        end)
 
-        {:ok, %{
-          "results" => formatted_results,
-          "total" => length(formatted_results),
-          "query" => query
-        }}
+        {:ok, %{"results" => formatted_results, "count" => length(formatted_results)}}
 
       {:error, reason} ->
-        Logger.warning("Embedding generation failed, falling back to empty results")
-        {:ok, %{"results" => [], "total" => 0, "query" => query}}
+        Logger.error("Failed to generate embedding: #{inspect(reason)}")
+        {:error, "Search failed: Unable to process query"}
     end
   end
 

@@ -11,8 +11,16 @@ defmodule JumpAgent.AI.VectorSearch do
   Searches for similar documents using cosine similarity.
   """
   def search_documents(user_id, query_embedding, limit \\ 10, threshold \\ 0.7, source_types \\ nil) do
-    # Convert embedding to pgvector format
-    embedding_string = "[#{Enum.join(query_embedding, ",")}]"
+    # Ensure the embedding is a list of floats
+    embedding_list =
+      case query_embedding do
+        %Pgvector{} = vec -> Pgvector.to_list(vec)
+        list when is_list(list) -> list
+        _ -> raise ArgumentError, "Invalid embedding format"
+      end
+
+    # Convert to string format for PostgreSQL
+    embedding_string = "[#{Enum.join(embedding_list, ",")}]"
 
     base_query =
       from d in DocumentEmbedding,
@@ -60,6 +68,19 @@ defmodule JumpAgent.AI.VectorSearch do
 
     entries =
       Enum.map(documents, fn doc ->
+        # Ensure embedding is in the correct format
+        embedding_vector =
+          case doc.embedding do
+            list when is_list(list) ->
+              # Convert list to Pgvector - just pass the list directly
+              list
+            %Pgvector{} = vec ->
+              # Already a Pgvector, convert to list
+              Pgvector.to_list(vec)
+            _ ->
+              raise ArgumentError, "Invalid embedding format for document"
+          end
+
         %{
           id: Ecto.UUID.generate(),
           user_id: user_id,
@@ -67,7 +88,7 @@ defmodule JumpAgent.AI.VectorSearch do
           source_id: doc.source_id,
           content: doc.content,
           metadata: doc.metadata || %{},
-          embedding: doc.embedding,
+          embedding: embedding_vector,  # Pass the list directly
           created_at_source: doc.created_at_source || timestamp,
           inserted_at: timestamp,
           updated_at: timestamp
