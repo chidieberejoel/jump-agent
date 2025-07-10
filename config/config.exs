@@ -87,6 +87,8 @@ config :jump_agent, Oban,
   ],
   queues: [default: 10, sync: 5, ai: 3]
 
+config :jump_agent, JumpAgent.Repo, types: JumpAgent.PostgrexTypes
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

@@ -42,3 +42,7 @@ npm-debug.log
 .env
 .env.*
 !.env.example
+
+# Ignore macOS system files
+.DS_Store
+.DS_Store?
