@@ -87,10 +87,8 @@ defmodule JumpAgent.AI.Agent do
   # Private functions
 
   defp process_with_langchain(messages, functions, user) do
-    # Use the existing LangchainService function that properly handles messages
     case LangchainService.process_message_with_tools(messages, functions) do
       {:ok, %LangChain.Message{} = message} ->
-        # Direct message response
         handle_langchain_response(message, user)
 
       {:ok, %LangChain.Chains.LLMChain{} = chain} ->
@@ -100,7 +98,11 @@ defmodule JumpAgent.AI.Agent do
 
       {:ok, response} when is_binary(response) ->
         # String response - convert to message
-        {:ok, Message.new_assistant(response)}
+        msg = case Message.new_assistant(response) do
+          {:ok, m} -> m
+          m -> m
+        end
+        {:ok, msg}
 
       {:error, :no_api_key} ->
         {:error, :no_api_key}
@@ -115,37 +117,28 @@ defmodule JumpAgent.AI.Agent do
   end
 
   defp handle_langchain_response(response, user) when is_struct(response, LangChain.Message) do
-    # Check if there are tool calls (not function_calls)
     if response.tool_calls && length(response.tool_calls) > 0 do
-      # Execute tool calls
       function_results = Enum.map(response.tool_calls, fn tool_call ->
         execute_function_call(tool_call, user)
       end)
 
       # For now, return the response with function results appended
-      # In a real implementation, you might want to send these back to the LLM
       content = build_response_with_results(response.content, function_results)
 
-      # Create a new assistant message with the content
-      assistant_msg = case Message.new_assistant(content) do
-        {:ok, msg} -> msg
-        msg -> msg
-      end
-
+      # Create a new assistant message
+      assistant_msg = Message.new_assistant!(content)
       {:ok, assistant_msg}
     else
-      # No tool calls, return the response as is
       {:ok, response}
     end
   end
 
   defp handle_langchain_response(response, _user) do
+    Logger.info("Handling non-message response: #{inspect(response)}")
+
     # Handle other response types
     content = to_string(response)
-    assistant_msg = case Message.new_assistant(content) do
-      {:ok, msg} -> msg
-      msg -> msg
-    end
+    assistant_msg = Message.new_assistant!(content)
     {:ok, assistant_msg}
   end
 
@@ -240,11 +233,8 @@ defmodule JumpAgent.AI.Agent do
     # Add context from relevant documents if available
     messages = if relevant_docs != [] do
       doc_context = build_document_context(relevant_docs)
-      # Handle the tuple return from Message.new_system
-      system_msg = case Message.new_system("Relevant context from your data:\n#{doc_context}") do
-        {:ok, msg} -> msg
-        msg -> msg
-      end
+      # Use bang version
+      system_msg = Message.new_system!("Relevant context from your data:\n#{doc_context}")
       messages ++ [system_msg]
     else
       messages
@@ -257,50 +247,34 @@ defmodule JumpAgent.AI.Agent do
 
     messages = messages ++ history_messages
 
-    # Add the new user message
-    # Handle the tuple return from Message.new_user
-    user_msg = case Message.new_user(new_message) do
-      {:ok, msg} -> msg
-      msg -> msg
-    end
-
+    user_msg = Message.new_user!(new_message)
     messages ++ [user_msg]
   end
 
-  defp convert_to_langchain_message(%{role: "system", content: content}) do
-    case Message.new_system(content) do
-      {:ok, message} -> message
-      message -> message  # In case it returns the message directly
+    defp convert_to_langchain_message(%{role: "system", content: content}) when is_binary(content) do
+      Message.new_system!(content)
     end
-  end
 
-  defp convert_to_langchain_message(%{role: "user", content: content}) do
-    case Message.new_user(content) do
-      {:ok, message} -> message
-      message -> message
+    defp convert_to_langchain_message(%{role: "user", content: content}) when is_binary(content) do
+      Message.new_user!(content)
     end
-  end
 
-  defp convert_to_langchain_message(%{role: "assistant", content: content}) do
-    case Message.new_assistant(content) do
-      {:ok, message} -> message
-      message -> message
+    defp convert_to_langchain_message(%{role: "assistant", content: content}) when is_binary(content) do
+      Message.new_assistant!(content)
     end
-  end
 
-  # Also add this catch-all for other message types
-  defp convert_to_langchain_message(%{"role" => role, "content" => content}) do
-    convert_to_langchain_message(%{role: role, content: content})
-  end
-
-  defp convert_to_langchain_message(msg) do
-    Logger.warning("Unknown message format: #{inspect(msg)}")
-    # Default to user message
-    case Message.new_user(inspect(msg)) do
-      {:ok, message} -> message
-      message -> message
+    defp convert_to_langchain_message(%JumpAgent.AI.Message{role: role, content: content}) do
+      convert_to_langchain_message(%{role: role, content: content})
     end
-  end
+
+    defp convert_to_langchain_message(%{"role" => role, "content" => content}) do
+      convert_to_langchain_message(%{role: role, content: content})
+    end
+
+    defp convert_to_langchain_message(other) do
+      Logger.error("Cannot convert to langchain message: #{inspect(other)}")
+      Message.new_user!("Error: Invalid message format")
+    end
 
   defp build_document_context(docs) do
     docs

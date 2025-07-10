@@ -437,8 +437,6 @@ defmodule JumpAgent.AI.LangchainService do
     })
   end
 
-  # In lib/jump_agent/ai/langchain_service.ex - replace these functions:
-
   defp ensure_system_message(messages) do
     # Convert all messages to LangChain Message structs first
     langchain_messages = to_langchain_messages(messages)
@@ -451,11 +449,8 @@ defmodule JumpAgent.AI.LangchainService do
     if has_system do
       langchain_messages
     else
-      # Create system message
-      system_msg = case Message.new_system(@system_prompt) do
-        {:ok, msg} -> msg
-        msg -> msg
-      end
+      # Create system message using bang version
+      system_msg = Message.new_system!(@system_prompt)
       [system_msg | langchain_messages]
     end
   end
@@ -469,37 +464,28 @@ defmodule JumpAgent.AI.LangchainService do
 
   defp to_langchain_message(%LangChain.Message{} = msg), do: msg
 
-  defp to_langchain_message(%{role: "system", content: content}) do
-    case Message.new_system(content) do
-      {:ok, message} -> message
-      message -> message
-    end
+  defp to_langchain_message(%{role: "system", content: content}) when is_binary(content) do
+    Message.new_system!(content)
   end
 
-  defp to_langchain_message(%{role: "user", content: content}) do
-    case Message.new_user(content) do
-      {:ok, message} -> message
-      message -> message
-    end
+  defp to_langchain_message(%{role: "user", content: content}) when is_binary(content) do
+    Message.new_user!(content)
   end
 
-  defp to_langchain_message(%{role: "assistant", content: content}) do
-    case Message.new_assistant(content) do
-      {:ok, message} -> message
-      message -> message
-    end
+  defp to_langchain_message(%{role: "assistant", content: content}) when is_binary(content) do
+    Message.new_assistant!(content)
   end
 
   defp to_langchain_message(%{"role" => role, "content" => content}) do
     to_langchain_message(%{role: role, content: content})
   end
 
+  defp to_langchain_message(%JumpAgent.AI.Message{role: role, content: content}) do
+    to_langchain_message(%{role: role, content: content})
+  end
+
   defp to_langchain_message(msg) do
     Logger.warning("Unknown message format: #{inspect(msg)}")
-    # Try to convert to a user message as a fallback
-    case Message.new_user(inspect(msg)) do
-      {:ok, message} -> message
-      message -> message
-    end
+    Message.new_user!(inspect(msg))
   end
 end

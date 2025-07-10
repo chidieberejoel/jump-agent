@@ -3,14 +3,17 @@ defmodule JumpAgentWeb.ChatLive do
 
   alias JumpAgent.AI
   alias JumpAgent.AI.{Conversation, Message}
-  alias Phoenix.LiveView.AsyncResult
+
+#  TODO; Remove logs after debugging
+  require Logger
 
   @impl true
   def mount(_params, _session, socket) do
-    # current_user is set by the on_mount hook
     user = socket.assigns[:current_user]
 
     if user do
+      Logger.info("ChatLive mounting for user #{user.id}")
+
       # Load conversations
       conversations = AI.list_conversations(user)
 
@@ -26,7 +29,6 @@ defmodule JumpAgentWeb.ChatLive do
             conv
         end
 
-      # Load messages for current conversation (limit to prevent memory issues)
       messages = AI.list_messages(current_conversation, limit: 50)
 
       {:ok,
@@ -39,11 +41,8 @@ defmodule JumpAgentWeb.ChatLive do
         |> assign(:show_chat_modal, true)
         |> assign(:active_tab, "chat")
         |> assign(:context_source, "all_meetings")
-        |> assign(:processing_message, AsyncResult.ok(nil))
         |> assign(:error_message, nil)}
     else
-      # This should not happen as on_mount should handle authentication
-      # But we need to provide default assigns for the template
       {:ok,
         socket
         |> assign(:conversations, [])
@@ -54,62 +53,8 @@ defmodule JumpAgentWeb.ChatLive do
         |> assign(:show_chat_modal, false)
         |> assign(:active_tab, "chat")
         |> assign(:context_source, "all_meetings")
-        |> assign(:processing_message, AsyncResult.ok(nil))
         |> assign(:error_message, nil)}
     end
-  end
-
-  @impl true
-  def handle_event("close_modal", _params, socket) do
-    {:noreply, assign(socket, :show_chat_modal, false)}
-  end
-
-  @impl true
-  def handle_event("open_modal", _params, socket) do
-    {:noreply, assign(socket, :show_chat_modal, true)}
-  end
-
-  @impl true
-  def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    {:noreply, assign(socket, :active_tab, tab)}
-  end
-
-  @impl true
-  def handle_event("new_thread", _params, socket) do
-    user = socket.assigns.current_user
-
-    {:ok, conversation} = AI.create_conversation(user, %{
-      title: "New Conversation",
-      context: %{"source" => socket.assigns.context_source}
-    })
-
-    conversations = [conversation | socket.assigns.conversations]
-
-    {:noreply,
-      socket
-      |> assign(:conversations, conversations)
-      |> assign(:current_conversation, conversation)
-      |> assign(:messages, [])
-      |> assign(:message_input, "")
-      |> assign(:error_message, nil)}
-  end
-
-  @impl true
-  def handle_event("select_conversation", %{"id" => conv_id}, socket) do
-    user = socket.assigns.current_user
-    conversation = AI.get_conversation!(user, conv_id)
-    messages = AI.list_messages(conversation)
-
-    {:noreply,
-      socket
-      |> assign(:current_conversation, conversation)
-      |> assign(:messages, messages)
-      |> assign(:error_message, nil)}
-  end
-
-  @impl true
-  def handle_event("update_message", %{"message" => message}, socket) do
-    {:noreply, assign(socket, :message_input, message)}
   end
 
   @impl true
@@ -123,21 +68,24 @@ defmodule JumpAgentWeb.ChatLive do
       content: message
     })
 
-    # Add to messages list
-    messages = socket.assigns.messages ++ [user_message]
+    # Create new messages list (important for change detection)
+    new_messages = socket.assigns.messages ++ [user_message]
 
-    # Start async processing
+    # Update socket
     socket =
       socket
-      |> assign(:messages, messages)
+      |> assign(:messages, new_messages)
       |> assign(:message_input, "")
       |> assign(:is_typing, true)
       |> assign(:error_message, nil)
-      |> assign_async(:processing_message, fn ->
-        # Process the message and return a map
-        result = process_message(conversation, message)
-        {:ok, %{processing_message: result}}
-      end)
+
+    me = self()
+    Task.start(fn ->
+      Logger.info("Processing message async")
+      result = AI.process_user_message(conversation, message)
+      Logger.info("Sending result back to LiveView")
+      send(me, {:ai_message_ready, result})
+    end)
 
     {:noreply, socket}
   end
@@ -148,67 +96,57 @@ defmodule JumpAgentWeb.ChatLive do
   end
 
   @impl true
-  def handle_event("change_context", %{"context" => context}, socket) do
-    # Update conversation context
-    conversation = socket.assigns.current_conversation
+  def handle_info({:ai_message_ready, {:ok, ai_message}}, socket) do
+    all_messages = socket.assigns.messages ++ [ai_message]
 
-    {:ok, updated_conv} = AI.update_conversation(conversation, %{
-      context: Map.put(conversation.context, "source", context)
-    })
-
-    {:noreply,
+    # Try using Kernel.put_in as alternative
+    updated_socket =
       socket
-      |> assign(:current_conversation, updated_conv)
-      |> assign(:context_source, context)}
-  end
-
-  @impl true
-  def handle_event("dismiss_error", _params, socket) do
-    {:noreply, assign(socket, :error_message, nil)}
-  end
-
-  @impl true
-  def handle_async(:processing_message, {:ok, %{processing_message: {:ok, ai_message}}}, socket) do
-    # Add the AI message to the messages list
-    messages = socket.assigns.messages ++ [ai_message]
-
-    {:noreply,
-      socket
-      |> assign(:messages, messages)
+      |> assign(:messages, all_messages)
       |> assign(:is_typing, false)
-      |> assign(:error_message, nil)}
+      |> assign(:error_message, nil)
+      |> assign(:force_update, System.unique_integer())  # Force any change
+
+    {:noreply, updated_socket}
   end
 
   @impl true
-  def handle_async(:processing_message, {:ok, %{processing_message: {:error, error_msg}}}, socket) do
-    # Show the error message
-    {:noreply,
-      socket
-      |> assign(:is_typing, false)
-      |> assign(:error_message, error_msg)}
-  end
-
-  @impl true
-  def handle_async(:processing_message, {:exit, reason}, socket) do
-    # Handle process crash
-    error_msg = "The AI service crashed. Please try again. Error: #{inspect(reason)}"
-
-    {:noreply,
-      socket
-      |> assign(:is_typing, false)
-      |> assign(:error_message, error_msg)}
-  end
-
-  defp process_message(conversation, message) do
-    case AI.process_user_message(conversation, message) do
-      {:ok, ai_message} -> {:ok, ai_message}
-      {:error, reason} -> {:error, reason}
+  def handle_info({:ai_message_ready, {:error, reason}}, socket) do
+    error_msg = case reason do
+      :no_api_key -> "OpenAI API key not configured"
+      msg when is_binary(msg) -> msg
+      _ -> "An error occurred"
     end
+
+    {:noreply,
+      socket
+      |> assign(:is_typing, false)
+      |> assign(:error_message, error_msg)}
   end
 
   @impl true
   def handle_info(:clear_flash, socket) do
     {:noreply, clear_flash(socket)}
+  end
+
+  @impl true
+  def handle_event("close_modal", _params, socket) do
+    {:noreply, assign(socket, :show_chat_modal, false)}
+  end
+
+  @impl true
+  def handle_event("open_modal", _params, socket) do
+    {:noreply, assign(socket, :show_chat_modal, true)}
+  end
+
+  @impl true
+  def handle_event("update_message", %{"message" => message}, socket) do
+    {:noreply, assign(socket, :message_input, message)}
+  end
+
+  @impl true
+  def handle_event("dismiss_error", _params, socket) do
+    {:noreply, assign(socket, :error_message, nil)}
   end
 
   @impl true
@@ -329,7 +267,7 @@ defmodule JumpAgentWeb.ChatLive do
                   <% end %>
 
                   <%= for message <- @messages do %>
-                    <div class={"flex #{if message.role == "user", do: "justify-end", else: "justify-start"}"}>
+                    <div id={"message-#{message.id}"} class={"flex #{if message.role == "user", do: "justify-end", else: "justify-start"}"}>
                       <div class={"max-w-[80%] #{if message.role == "user", do: "bg-brand text-white", else: "bg-gray-100"} rounded-lg px-4 py-2"}>
                         <p class="text-sm whitespace-pre-wrap"><%= message.content %></p>
                       </div>
