@@ -98,6 +98,11 @@ if config_env() == :prod do
       raise("""
       environment variable HUBSPOT_CLIENT_SECRET is missing.
       You can get it from HubSpot App Settings.
+      """),
+    hubspot_app_id: System.get_env("HUBSPOT_APP_ID") ||
+      raise("""
+      environment variable HUBSPOT_APP_ID is missing.
+      You can get it from HubSpot App Settings.
       """)
 
   # Configure Langchain

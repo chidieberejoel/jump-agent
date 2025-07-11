@@ -71,7 +71,8 @@ config :ueberauth, Ueberauth.Strategy.Google.OAuth,
 
 config :jump_agent,
   hubspot_client_id: System.get_env("HUBSPOT_CLIENT_ID"),
-  hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET")
+  hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET"),
+  hubspot_app_id: System.get_env("HUBSPOT_APP_ID")
 
 # Configure Langchain
 config :langchain,

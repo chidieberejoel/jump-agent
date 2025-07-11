@@ -26,7 +26,7 @@ An AI-powered assistant for financial advisors that seamlessly integrates with G
 ## Prerequisites
 
 - Elixir 1.14+
-- PostgreSQL 14+ with pgvector extension
+- PostgreSQL 14+ **with pgvector extension**
 - Node.js 16+ (for assets)
 - Google Cloud Console account (for OAuth)
 - HubSpot developer account

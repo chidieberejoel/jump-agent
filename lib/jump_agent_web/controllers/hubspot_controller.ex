@@ -138,6 +138,8 @@ defmodule JumpAgentWeb.HubSpotController do
           token_expires_at: DateTime.utc_now() |> DateTime.add(expires_in, :second)
         }
 
+        app_id = Application.get_env(:jump_agent, :hubspot_app_id, "")
+
         case HubSpotAPI.get_account_info(temp_connection) do
           {:ok, account_info} ->
             connection_params = %{
@@ -146,7 +148,7 @@ defmodule JumpAgentWeb.HubSpotController do
               token_expires_at: DateTime.utc_now() |> DateTime.add(expires_in, :second) |> DateTime.truncate(:second),
               portal_id: to_string(account_info["portalId"] || ""),
               hub_domain: account_info["hubDomain"],
-              app_id: to_string(account_info["appId"] || ""),
+              app_id: app_id,
               scopes: scopes,
               connected_at: DateTime.utc_now() |> DateTime.truncate(:second)
             }
@@ -172,12 +174,15 @@ defmodule JumpAgentWeb.HubSpotController do
           {:error, reason} ->
             Logger.error("Failed to get HubSpot account info: #{inspect(reason)}")
 
+            app_id = Application.get_env(:jump_agent, :hubspot_app_id, "")
+
             # Still try to save the connection without account info
             connection_params = %{
               access_token: access_token,
               refresh_token: refresh_token,
               token_expires_at: DateTime.utc_now() |> DateTime.add(expires_in, :second) |> DateTime.truncate(:second),
               scopes: scopes,
+              app_id: app_id,
               connected_at: DateTime.utc_now() |> DateTime.truncate(:second)
             }
 
