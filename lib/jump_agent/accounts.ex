@@ -86,6 +86,47 @@ defmodule JumpAgent.Accounts do
     |> Repo.update()
   end
 
+  def update_user_webhook_info(%User{} = user, attrs) do
+    user
+    |> User.webhook_changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
+  Lists users with Gmail watches expiring within the specified hours.
+  """
+  def list_users_with_expiring_gmail_watch(opts \\ []) do
+    hours = Keyword.get(opts, :hours, 24)
+    threshold = DateTime.utc_now() |> DateTime.add(hours * 60 * 60, :second)
+
+    User
+    |> where([u], not is_nil(u.gmail_watch_expiration))
+    |> where([u], u.gmail_watch_expiration <= ^threshold)
+    |> where([u], not is_nil(u.google_access_token))
+    |> Repo.all()
+  end
+
+  @doc """
+  Lists users with Calendar watches expiring within the specified hours.
+  """
+  def list_users_with_expiring_calendar_watch(opts \\ []) do
+    hours = Keyword.get(opts, :hours, 24)
+    threshold = DateTime.utc_now() |> DateTime.add(hours * 60 * 60, :second)
+
+    User
+    |> where([u], not is_nil(u.calendar_watch_expiration))
+    |> where([u], u.calendar_watch_expiration <= ^threshold)
+    |> where([u], not is_nil(u.google_access_token))
+    |> Repo.all()
+  end
+
+  @doc """
+  Gets a user by email address.
+  """
+  def get_user_by_email(email) when is_binary(email) do
+    Repo.get_by(User, email: email)
+  end
+
   @doc """
   Check if user's token is expired
   """

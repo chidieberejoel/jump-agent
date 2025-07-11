@@ -11,7 +11,32 @@ defmodule JumpAgent.Accounts.User do
     field :google_token_expires_at, :utc_datetime
     field :last_login_at, :utc_datetime
 
+    # Webhook tracking fields
+    field :gmail_watch_expiration, :utc_datetime
+    field :gmail_history_id, :string
+    field :calendar_watch_expiration, :utc_datetime
+    field :calendar_channel_id, :string
+    field :calendar_resource_id, :string
+
     timestamps()
+  end
+
+#  TODO; Repetitive? Use only webhook fields and rename?
+  def changeset(user, attrs) do
+    user
+    |> cast(attrs, [
+      :name,
+      :email,
+      :google_id,
+      :avatar_url,
+      :gmail_watch_expiration,
+      :gmail_history_id,
+      :calendar_watch_expiration,
+      :calendar_channel_id,
+      :calendar_resource_id
+    ])
+    |> validate_email()
+    |> unique_constraint(:google_id)
   end
 
   @doc false
@@ -19,6 +44,7 @@ defmodule JumpAgent.Accounts.User do
     user
     |> cast(attrs, [:email, :name, :google_id, :avatar_url])
     |> validate_required([:email, :google_id])
+#    |> validate_email() # TODO; Use this instead?
     |> validate_format(:email, ~r/^[^\s]+@[^\s]+$/, message: "must have the @ sign and no spaces")
     |> unique_constraint(:email)
     |> unique_constraint(:google_id)
@@ -26,10 +52,30 @@ defmodule JumpAgent.Accounts.User do
   end
 
   @doc false
+  def webhook_changeset(user, attrs) do
+    user
+    |> cast(attrs, [
+      :gmail_watch_expiration,
+      :gmail_history_id,
+      :calendar_watch_expiration,
+      :calendar_channel_id,
+      :calendar_resource_id
+    ])
+  end
+
+  @doc false
   def token_changeset(user, attrs) do
     user
     |> cast(attrs, [:google_access_token, :google_refresh_token, :google_token_expires_at])
     |> encrypt_tokens()
+  end
+
+  defp validate_email(changeset) do
+    changeset
+    |> validate_required([:email])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+$/, message: "must have the @ sign and no spaces")
+    |> validate_length(:email, max: 160)
+    |> unique_constraint(:email)
   end
 
   defp encrypt_tokens(changeset) do

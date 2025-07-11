@@ -189,6 +189,51 @@ defmodule JumpAgent.HubSpotAPI do
   end
 
   @doc """
+  Get webhook settings for an app.
+  """
+  def get_webhook_settings(connection, app_id) do
+    make_request(connection, :get, "/webhooks/v3/#{app_id}/settings")
+  end
+
+  @doc """
+  Create webhook settings for an app.
+  """
+  def create_webhook_settings(connection, app_id, settings) do
+    make_request(connection, :post, "/webhooks/v3/#{app_id}/settings", settings)
+  end
+
+  @doc """
+  Update webhook settings for an app.
+  """
+  def update_webhook_settings(connection, app_id, settings) do
+    make_request(connection, :put, "/webhooks/v3/#{app_id}/settings", settings)
+  end
+
+  @doc """
+  Delete webhook settings for an app.
+  """
+  def delete_webhook_settings(connection, app_id) do
+    make_request(connection, :delete, "/webhooks/v3/#{app_id}/settings")
+  end
+
+  @doc """
+  Get webhook subscriptions.
+  """
+  def get_webhook_subscriptions(connection, app_id) do
+    make_request(connection, :get, "/webhooks/v3/#{app_id}/subscriptions")
+  end
+
+  @doc """
+  Validate webhook signature.
+  """
+  def validate_webhook_signature(signature, client_secret, body) do
+    expected = :crypto.mac(:hmac, :sha256, client_secret, body)
+               |> Base.encode16(case: :lower)
+
+    Plug.Crypto.secure_compare(signature, "sha256=#{expected}")
+  end
+
+  @doc """
   Refresh the access token using the refresh token.
   """
   def refresh_token(%Connection{} = connection) do

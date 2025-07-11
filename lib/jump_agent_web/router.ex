@@ -1,3 +1,4 @@
+# Updated lib/jump_agent_web/router.ex
 defmodule JumpAgentWeb.Router do
   use JumpAgentWeb, :router
 
@@ -66,6 +67,19 @@ defmodule JumpAgentWeb.Router do
       live "/dashboard/live", DashboardLive, :index
       live "/chat", ChatLive, :index
       live "/instructions", InstructionsLive, :index
+    end
+  end
+
+  # API routes for webhooks
+  scope "/api", JumpAgentWeb do
+    pipe_through :api
+
+    # Webhook endpoints
+    scope "/webhooks" do
+      post "/gmail", WebhookController, :gmail
+      post "/calendar", WebhookController, :calendar
+      post "/hubspot", WebhookController, :hubspot
+      get "/verify", WebhookController, :verify
     end
   end
 

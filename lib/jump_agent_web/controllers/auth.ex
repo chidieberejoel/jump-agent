@@ -74,12 +74,19 @@ defmodule JumpAgentWeb.AuthController do
             refresh_token = auth.credentials.refresh_token
 
             if access_token && refresh_token do
-              Accounts.update_user_tokens(
-                user,
-                access_token,
-                refresh_token,
-                expires_at
-              )
+              case Accounts.update_user_tokens(
+                 user,
+                 access_token,
+                 refresh_token,
+                 expires_at
+               ) do
+                {:ok, updated_user} ->
+                  # Set up webhooks after successful token update
+                  setup_user_webhooks(updated_user)
+                  {:ok, updated_user}
+
+                error -> error
+              end
             else
               Logger.warning("Missing tokens in OAuth response")
               {:ok, user}
@@ -104,24 +111,17 @@ defmodule JumpAgentWeb.AuthController do
             Logger.error("Failed to update user tokens: #{inspect(changeset.errors)}")
 
             conn
-            |> put_flash(:error, "Authentication succeeded but failed to save credentials.")
-            |> redirect(to: ~p"/")
+            |> put_flash(:error, "Login successful but token storage failed. Some features may not work.")
+            |> redirect(to: ~p"/dashboard")
         end
 
       {:error, changeset} ->
         Logger.error("Failed to create/update user: #{inspect(changeset.errors)}")
 
         conn
-        |> put_flash(:error, "Failed to create or update user account.")
+        |> put_flash(:error, "Authentication failed. Please try again.")
         |> redirect(to: ~p"/")
     end
-  rescue
-    error ->
-      Logger.error("Unexpected error in OAuth callback: #{inspect(error)}")
-
-      conn
-      |> put_flash(:error, "An unexpected error occurred. Please try again.")
-      |> redirect(to: ~p"/")
   end
 
   def logout(conn, _params) do
@@ -131,9 +131,59 @@ defmodule JumpAgentWeb.AuthController do
       Logger.info("User #{user_id} logged out")
     end
 
+    user = Accounts.get_user!(user_id)
+    cleanup_user_webhooks(user) # Cleanup webhooks when the user logs out
+
     conn
     |> configure_session(drop: true)
     |> put_flash(:info, "You have been logged out successfully.")
     |> redirect(to: ~p"/")
+  end
+
+  defp setup_user_webhooks(user) do
+    # Set up Gmail webhook
+    Task.start(fn ->
+      case JumpAgent.WebhookService.setup_gmail_webhook(user) do
+        {:ok, _} -> Logger.info("Gmail webhook setup successful for user #{user.id}")
+        {:error, reason} -> Logger.warning("Gmail webhook setup failed for user #{user.id}: #{inspect(reason)}")
+      end
+    end)
+
+    # Set up Calendar webhook
+    Task.start(fn ->
+      case JumpAgent.WebhookService.setup_calendar_webhook(user) do
+        {:ok, _} -> Logger.info("Calendar webhook setup successful for user #{user.id}")
+        {:error, reason} -> Logger.warning("Calendar webhook setup failed for user #{user.id}: #{inspect(reason)}")
+      end
+    end)
+  end
+
+  defp cleanup_user_webhooks(user) do
+    Task.start(fn ->
+      # Stop Gmail watch
+      case JumpAgent.WebhookService.stop_gmail_webhook(user) do
+        :ok -> Logger.info("Stopped Gmail webhook for #{user.email}")
+        {:error, reason} -> Logger.warning("Failed to stop Gmail webhook: #{inspect(reason)}")
+      end
+
+      # Stop Calendar watch
+      if user.calendar_channel_id && user.calendar_resource_id do
+        case JumpAgent.WebhookService.stop_calendar_webhook(user) do
+          :ok -> Logger.info("Stopped Calendar webhook for #{user.email}")
+          {:error, reason} -> Logger.warning("Failed to stop Calendar webhook: #{inspect(reason)}")
+        end
+      end
+
+      # TODO; Also stop hubspot webhooks
+
+      # Clear webhook data from database
+      Accounts.update_user_webhook_info(user, %{
+        gmail_watch_expiration: nil,
+        gmail_history_id: nil,
+        calendar_watch_expiration: nil,
+        calendar_channel_id: nil,
+        calendar_resource_id: nil
+      })
+    end)
   end
 end

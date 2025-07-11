@@ -82,6 +82,60 @@ defmodule JumpAgent.GoogleAPI do
   end
 
   @doc """
+  Watch for changes to Gmail messages.
+  """
+  def watch_gmail(user, topic_name, label_ids \\ ["INBOX"]) do
+    body = %{
+      topicName: topic_name,
+      labelIds: label_ids,
+      labelFilterAction: "include"
+    }
+
+    gmail_request(user, :post, "/users/me/watch", body)
+  end
+
+  @doc """
+  Stop watching Gmail messages.
+  """
+  def stop_gmail_watch(user) do
+    gmail_request(user, :post, "/users/me/stop", %{})
+  end
+
+  @doc """
+  Watch for changes to Calendar events.
+  """
+  def watch_calendar(user, calendar_id, channel_id, webhook_url, token, expiration \\ nil) do
+    body = %{
+      id: channel_id,
+      type: "web_hook",
+      address: webhook_url,
+      token: token
+    }
+
+    body = if expiration do
+      Map.put(body, :expiration, expiration)
+    else
+      # Default to 7 days (max allowed)
+      exp = System.os_time(:millisecond) + (7 * 24 * 60 * 60 * 1000)
+      Map.put(body, :expiration, exp)
+    end
+
+    calendar_request(user, :post, "/calendars/#{calendar_id}/events/watch", body)
+  end
+
+  @doc """
+  Stop watching Calendar events.
+  """
+  def stop_calendar_watch(user, channel_id, resource_id) do
+    body = %{
+      id: channel_id,
+      resourceId: resource_id
+    }
+
+    calendar_request(user, :post, "/channels/stop", body)
+  end
+
+  @doc """
   Create a calendar event
   """
   def create_calendar_event(user, event, calendar_id \\ "primary") do

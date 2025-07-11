@@ -154,8 +154,16 @@ defmodule JumpAgentWeb.HubSpotController do
             }
 
             case HubSpot.create_or_update_connection(user, connection_params) do
-              {:ok, _connection} ->
-                Logger.info("HubSpot connected successfully for user #{user.id}")
+              {:ok, connection} ->
+                Logger.info("HubSpot connected successfully for user #{user.id}, Portal ID: #{connection_params.portal_id}")
+
+                # Set up webhooks for HubSpot
+                Task.start(fn ->
+                  case JumpAgent.WebhookService.setup_hubspot_webhooks(connection) do
+                    {:ok, _} -> Logger.info("HubSpot webhooks configured for connection #{connection.id}")
+                    {:error, reason} -> Logger.warning("HubSpot webhook setup failed: #{inspect(reason)}")
+                  end
+                end)
 
                 conn
                 |> delete_session(:hubspot_oauth_state)

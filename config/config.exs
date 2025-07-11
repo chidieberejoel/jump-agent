@@ -82,10 +82,12 @@ config :jump_agent, Oban,
      # Sync HubSpot every 10 minutes
      {"*/10 * * * *", JumpAgent.Workers.HubSpotSyncWorker},
      # Process pending tasks every minute
-     {"* * * * *", JumpAgent.Workers.TaskProcessorWorker}
+     {"* * * * *", JumpAgent.Workers.TaskProcessorWorker},
+     # Webhook maintenance every 6 hours
+     {"0 */6 * * *", JumpAgent.Workers.WebhookMaintenanceWorker}
    ]}
   ],
-  queues: [default: 10, sync: 5, ai: 3]
+  queues: [default: 10, sync: 5, ai: 3, webhooks: 5, maintenance: 3]
 
 config :jump_agent, JumpAgent.Repo, types: JumpAgent.PostgrexTypes
 

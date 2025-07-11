@@ -74,6 +74,12 @@ config :jump_agent,
   hubspot_client_secret: System.get_env("HUBSPOT_CLIENT_SECRET"),
   hubspot_app_id: System.get_env("HUBSPOT_APP_ID")
 
+config :jump_agent,
+       webhook_base_url: System.get_env("WEBHOOK_BASE_URL"),
+       webhook_secret: System.get_env("WEBHOOK_SECRET"),
+       hubspot_app_id: System.get_env("HUBSPOT_APP_ID"),
+       google_cloud_project_id: System.get_env("GOOGLE_CLOUD_PROJECT_ID")
+
 # Configure Langchain
 config :langchain,
        openai_api_key: System.get_env("OPENAI_API_KEY"),

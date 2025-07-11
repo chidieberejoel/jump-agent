@@ -78,6 +78,16 @@ if config_env() == :prod do
        You can get it from Google Cloud Console.
        """)
 
+  config :jump_agent,
+     webhook_base_url: System.get_env("WEBHOOK_BASE_URL"),
+     webhook_secret: System.get_env("WEBHOOK_SECRET") ||
+       raise("""
+       environment variable WEBHOOK_SECRET is missing.
+       Generate one with: :crypto.strong_rand_bytes(32) |> Base.encode64()
+       """),
+     hubspot_app_id: System.get_env("HUBSPOT_APP_ID"),
+     google_cloud_project_id: System.get_env("GOOGLE_CLOUD_PROJECT_ID")
+
   # Configure token encryption
   token_key = System.get_env("TOKEN_ENCRYPTION_KEY") ||
     raise("""
