@@ -139,10 +139,10 @@ defmodule JumpAgent.AI do
 
   @doc """
   Creates an ongoing instruction for the user.
+  Note: user_id should already be in attrs
   """
   def create_instruction(user, attrs) do
-    attrs = Map.put(attrs, :user_id, user.id)
-
+    # Don't add user_id here - it should already be in attrs from the form
     %Instruction{}
     |> Instruction.changeset(attrs)
     |> Repo.insert()
