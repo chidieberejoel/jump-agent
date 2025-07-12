@@ -4,15 +4,15 @@ defmodule JumpAgentWeb.WebhookController do
   alias JumpAgent.{AI, Accounts, HubSpot}
   require Logger
 
-  # Gmail Push Notification
+  # Gmail Push Notification (via Pub/Sub)
   def gmail(conn, params) do
-    # Verify the push notification is from Google
-    if verify_google_push(conn) do
+    # Gmail notifications come from Pub/Sub
+    if verify_pubsub_message(conn, params) do
       handle_gmail_notification(params)
 
       conn
       |> put_status(:ok)
-      |> json(%{status: "ok"})
+      |> text("")
     else
       conn
       |> put_status(:unauthorized)
@@ -20,14 +20,15 @@ defmodule JumpAgentWeb.WebhookController do
     end
   end
 
-  # Google Calendar Push Notification
+  # Google Calendar Push Notification (direct webhook)
   def calendar(conn, params) do
-    if verify_google_push(conn) do
-      handle_calendar_notification(params)
+    # Calendar sends direct webhooks with specific headers
+    if verify_calendar_webhook(conn) do
+      handle_calendar_notification(conn, params)
 
       conn
       |> put_status(:ok)
-      |> json(%{status: "ok"})
+      |> text("")
     else
       conn
       |> put_status(:unauthorized)
@@ -37,7 +38,6 @@ defmodule JumpAgentWeb.WebhookController do
 
   # HubSpot Webhook
   def hubspot(conn, params) do
-    # Verify HubSpot webhook signature
     if verify_hubspot_signature(conn) do
       handle_hubspot_events(params)
 
@@ -51,164 +51,130 @@ defmodule JumpAgentWeb.WebhookController do
     end
   end
 
-  # Verification challenge for setting up webhooks
-  def verify(conn, %{"hub.mode" => "subscribe", "hub.challenge" => challenge, "hub.verify_token" => token}) do
-    expected_token = Application.get_env(:jump_agent, :webhook_verify_token, "jump_agent_webhook_token")
+  defp verify_pubsub_message(conn, params) do
+    # Pub/Sub messages come with a specific structure
+    case params do
+      %{"message" => %{"data" => _data}} ->
+        # Verify the request comes from Google's IPs
+        user_agent = get_req_header(conn, "user-agent") |> List.first() || ""
+        String.contains?(user_agent, "Google-Cloud-PubSub")
 
-    if token == expected_token do
-      conn
-      |> put_resp_content_type("text/plain")
-      |> send_resp(200, challenge)
-    else
-      conn
-      |> put_status(:forbidden)
-      |> json(%{error: "Invalid verify token"})
+      _ ->
+        false
     end
   end
 
-  def verify(conn, _params) do
-    conn
-    |> put_status(:bad_request)
-    |> json(%{error: "Invalid verification request"})
-  end
+  defp verify_calendar_webhook(conn) do
+    # Calendar webhooks include specific headers
+    channel_id = get_req_header(conn, "x-goog-channel-id") |> List.first()
+    resource_id = get_req_header(conn, "x-goog-resource-id") |> List.first()
 
-  # Private functions
-
-  defp verify_google_push(conn) do
-    # Verify the push notification came from Google
-    # Check for Google's User-Agent and source IPs
-    user_agent = get_req_header(conn, "user-agent") |> List.first() || ""
-    source_ip = get_peer_ip(conn)
-
-    # Google Push notifications come from specific IPs and user agents
-    valid_user_agent = String.contains?(user_agent, "Google-Cloud-Pub/Sub")
-
-    # In production, also verify against Google's IP ranges
-    # For now, check user agent at minimum
-    if Application.get_env(:jump_agent, :env) == :prod do
-      valid_user_agent
-    else
-      true
-    end
+    # Verify headers are present
+    channel_id && resource_id
   end
 
   defp verify_hubspot_signature(conn) do
-    # Verify HubSpot webhook signature
-    # https://developers.hubspot.com/docs/api/webhooks/validating-requests
     signature = get_req_header(conn, "x-hubspot-signature") |> List.first()
 
-    if signature && Application.get_env(:jump_agent, :env) == :prod do
-      # Get the raw body
-      {:ok, body, _conn} = Plug.Conn.read_body(conn)
+    if signature do
+      # Verify signature
+      app_secret = Application.get_env(:jump_agent, :hubspot_client_secret)
+      request_body = conn.assigns[:raw_body] || ""
 
-      client_secret = Application.get_env(:jump_agent, :hubspot_client_secret)
-      expected_signature = :crypto.mac(:hmac, :sha256, client_secret, body) |> Base.encode16(case: :lower)
+      expected_signature = :crypto.mac(:hmac, :sha256, app_secret, request_body) |> Base.encode16(case: :lower)
 
-      Plug.Crypto.secure_compare(signature, "sha256=#{expected_signature}")
+      Plug.Crypto.secure_compare(signature, expected_signature)
     else
-      true
+      false
     end
   end
 
-  defp get_peer_ip(conn) do
-    case get_req_header(conn, "x-forwarded-for") do
-      [forwarded | _] -> forwarded |> String.split(",") |> List.first() |> String.trim()
-      [] -> to_string(:inet_parse.ntoa(conn.remote_ip))
-    end
-  end
-
-  defp handle_gmail_notification(%{"message" => message}) do
+  defp handle_gmail_notification(%{"message" => %{"data" => encoded_data}}) do
     # Decode the Pub/Sub message
-    case Base.decode64(message["data"] || "") do
+    case Base.decode64(encoded_data) do
       {:ok, decoded} ->
         data = Jason.decode!(decoded)
-        user_email = data["emailAddress"]
+        email = data["emailAddress"]
+        history_id = data["historyId"]
 
-        # Find user by email
-        case Accounts.get_user_by_email(user_email) do
+        Logger.info("Gmail notification for #{email}, history ID: #{history_id}")
+
+        # Find user and sync their Gmail
+        case Accounts.get_user_by_email(email) do
           nil ->
-            Logger.warning("Gmail notification for unknown user: #{user_email}")
+            Logger.warning("No user found for email: #{email}")
 
           user ->
-            # Queue a sync for this user
-            %{user_id: user.id}
+            # Queue Gmail sync job
+            %{user_id: user.id, history_id: history_id}
             |> JumpAgent.Workers.GmailSyncWorker.new()
             |> Oban.insert()
-
-            # Process event for instructions
-            AI.process_external_event(user, "email_received", data)
         end
 
-      _ ->
-        Logger.error("Failed to decode Gmail push notification")
+      {:error, _} ->
+        Logger.error("Failed to decode Gmail notification")
     end
   end
 
-  defp handle_calendar_notification(%{"message" => message}) do
-    # Similar to Gmail
-    case Base.decode64(message["data"] || "") do
-      {:ok, decoded} ->
-        data = Jason.decode!(decoded)
+  defp handle_calendar_notification(conn, _params) do
+    # Get notification details from headers
+    channel_id = get_req_header(conn, "x-goog-channel-id") |> List.first()
+    resource_id = get_req_header(conn, "x-goog-resource-id") |> List.first()
+    resource_state = get_req_header(conn, "x-goog-resource-state") |> List.first()
 
-        # Calendar notifications include the resource ID
-        # We'd need to map this to a user
-        # For now, process all users' calendars
-        Logger.info("Calendar notification received: #{inspect(data)}")
+    Logger.info("Calendar notification - Channel: #{channel_id}, State: #{resource_state}")
 
-      # Queue calendar sync for affected users
-      # This would be more targeted in production
+    # Find user by channel ID
+    case Accounts.get_user_by_calendar_channel_id(channel_id) do
+      nil ->
+        Logger.warning("No user found for channel ID: #{channel_id}")
 
-      _ ->
-        Logger.error("Failed to decode Calendar push notification")
+      user ->
+        # Only process if not a sync message
+        if resource_state != "sync" do
+          # Queue calendar sync job
+          %{user_id: user.id}
+          |> JumpAgent.Workers.CalendarSyncWorker.new()
+          |> Oban.insert()
+        end
     end
   end
 
   defp handle_hubspot_events(params) do
-    # HubSpot sends webhook events in batches
-    events = params["events"] || [params]
+    # Process each HubSpot event
+    Enum.each(params, fn event ->
+      %{
+        "eventType" => event_type,
+        "objectId" => object_id,
+        "propertyName" => property_name,
+        "propertyValue" => property_value
+      } = event
 
-    Enum.each(events, fn event ->
-      handle_hubspot_event(event)
+      Logger.info("HubSpot event: #{event_type} for object #{object_id}")
+
+      # Queue appropriate sync job based on event type
+      case event_type do
+        "contact" <> _ ->
+          %{object_id: object_id, event_type: event_type}
+          |> JumpAgent.Workers.HubSpotContactSyncWorker.new()
+          |> Oban.insert()
+
+        _ ->
+          Logger.debug("Unhandled HubSpot event type: #{event_type}")
+      end
     end)
   end
 
-  defp handle_hubspot_event(event) do
-    portal_id = to_string(event["portalId"])
-    object_type = event["subscriptionType"]
+  defp get_peer_ip(conn) do
+    forwarded_for = get_req_header(conn, "x-forwarded-for") |> List.first()
 
-    # Find the HubSpot connection
-    case HubSpot.get_connection_by_portal_id(portal_id) do
-      nil ->
-        Logger.warning("HubSpot event for unknown portal: #{portal_id}")
-
-      connection ->
-        user = HubSpot.get_connection_user(connection)
-
-        # Map HubSpot event types to our trigger types
-        trigger_type = map_hubspot_event_type(object_type)
-
-        if trigger_type do
-          AI.process_external_event(user, trigger_type, event)
-
-          # Queue a sync for this specific object
-          queue_hubspot_sync(connection, event)
-        end
+    if forwarded_for do
+      forwarded_for
+      |> String.split(",")
+      |> List.first()
+      |> String.trim()
+    else
+      to_string(:inet.ntoa(conn.remote_ip))
     end
-  end
-
-  defp map_hubspot_event_type("contact.creation"), do: "hubspot_contact_created"
-  defp map_hubspot_event_type("contact.propertyChange"), do: "hubspot_contact_updated"
-  defp map_hubspot_event_type("contact.deletion"), do: "hubspot_contact_deleted"
-  defp map_hubspot_event_type(_), do: nil
-
-  defp queue_hubspot_sync(connection, event) do
-    # Queue a targeted sync based on the event type
-    %{
-      connection_id: connection.id,
-      object_type: event["subscriptionType"],
-      object_id: event["objectId"]
-    }
-    |> JumpAgent.Workers.HubSpotSyncWorker.new()
-    |> Oban.insert()
   end
 end

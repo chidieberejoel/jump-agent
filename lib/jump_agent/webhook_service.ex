@@ -1,23 +1,22 @@
 defmodule JumpAgent.WebhookService do
   @moduledoc """
-  Manages webhook registrations for Gmail, Calendar, and HubSpot.
+  Manages webhook registrations for Gmail and Calendar.
+  Gmail uses Pub/Sub, Calendar uses direct webhooks.
   """
 
   alias JumpAgent.{GoogleAPI, HubSpotAPI, HubSpot}
   require Logger
 
+  # Only Gmail uses Pub/Sub topics
   @gmail_topic "projects/#{System.get_env("GOOGLE_CLOUD_PROJECT_ID", "jump-agent")}/topics/gmail-push"
-  @calendar_topic "projects/#{System.get_env("GOOGLE_CLOUD_PROJECT_ID", "jump-agent")}/topics/calendar-push"
 
   # Watch duration in seconds (7 days - maximum allowed by Google)
   @watch_duration_seconds 7 * 24 * 60 * 60
 
   @doc """
-  Sets up Gmail push notifications for a user.
+  Sets up Gmail push notifications for a user using Pub/Sub.
   """
   def setup_gmail_webhook(user) do
-    webhook_url = webhook_url(:gmail)
-
     request_body = %{
       topicName: @gmail_topic,
       labelIds: ["INBOX"],
@@ -30,7 +29,6 @@ defmodule JumpAgent.WebhookService do
     # Start new watch
     case GoogleAPI.gmail_request(user, :post, "/users/me/watch", request_body) do
       {:ok, %{"expiration" => expiration, "historyId" => history_id}} ->
-        # Store the expiration time and history ID
         expiration_dt = expiration
                         |> String.to_integer()
                         |> DateTime.from_unix!(:millisecond)
@@ -53,20 +51,24 @@ defmodule JumpAgent.WebhookService do
   end
 
   @doc """
-  Sets up Calendar push notifications for a user.
+  Sets up Calendar push notifications for a user using direct webhooks.
+  Calendar API doesn't use Pub/Sub - it sends notifications directly.
   """
   def setup_calendar_webhook(user, calendar_id \\ "primary") do
     webhook_url = webhook_url(:calendar)
 
-    # Generate a unique channel ID
-    channel_id = "calendar-#{user.id}-#{System.unique_integer([:positive])}"
+    # Generate a unique channel ID for this watch
+    channel_id = "calendar-#{user.id}-#{:os.system_time(:second)}"
+
+    # Calculate expiration time (current time + 7 days)
+    expiration_ms = System.os_time(:millisecond) + (@watch_duration_seconds * 1000)
 
     request_body = %{
       id: channel_id,
       type: "web_hook",
       address: webhook_url,
       token: generate_webhook_token(user.id),
-      expiration: (System.os_time(:millisecond) + @watch_duration_seconds * 1000)
+      expiration: expiration_ms
     }
 
     case GoogleAPI.calendar_request(user, :post, "/calendars/#{calendar_id}/events/watch", request_body) do
@@ -134,7 +136,6 @@ defmodule JumpAgent.WebhookService do
         }
       ]
 
-      # Create webhook settings
       settings = %{
         targetUrl: webhook_url,
         throttling: %{
@@ -143,33 +144,18 @@ defmodule JumpAgent.WebhookService do
         }
       }
 
-      # First, try to update existing settings
       case update_hubspot_webhook_settings(connection, app_id, settings, subscriptions) do
         {:ok, _} ->
           Logger.info("HubSpot webhooks configured for connection #{connection.id}")
           {:ok, :configured}
 
         {:error, :not_found} ->
-          # Create new settings if they don't exist
           create_hubspot_webhook_settings(connection, app_id, settings, subscriptions)
 
         error ->
           error
       end
     end
-  end
-
-  @doc """
-  Renews expiring webhooks.
-  """
-  def renew_expiring_webhooks do
-    # Check Gmail webhooks expiring in next 24 hours
-    JumpAgent.Accounts.list_users_with_expiring_gmail_watch(hours: 24)
-    |> Enum.each(&setup_gmail_webhook/1)
-
-    # Check Calendar webhooks expiring in next 24 hours  
-    JumpAgent.Accounts.list_users_with_expiring_calendar_watch(hours: 24)
-    |> Enum.each(&setup_calendar_webhook/1)
   end
 
   @doc """
@@ -220,6 +206,19 @@ defmodule JumpAgent.WebhookService do
     end
   end
 
+  @doc """
+  Renews expiring webhooks.
+  """
+  def renew_expiring_webhooks do
+    # Check Gmail webhooks expiring in next 24 hours
+    JumpAgent.Accounts.list_users_with_expiring_gmail_watch(hours: 24)
+    |> Enum.each(&setup_gmail_webhook/1)
+
+    # Check Calendar webhooks expiring in next 24 hours
+    JumpAgent.Accounts.list_users_with_expiring_calendar_watch(hours: 24)
+    |> Enum.each(&setup_calendar_webhook/1)
+  end
+
   # Private functions
 
   defp webhook_url(service) do
@@ -235,7 +234,8 @@ defmodule JumpAgent.WebhookService do
 
   defp generate_webhook_token(user_id) do
     # Generate a secure token for webhook verification
-    :crypto.mac(:hmac, :sha256, webhook_secret(), "#{user_id}")
+    secret = webhook_secret()
+    :crypto.mac(:hmac, :sha256, secret, "#{user_id}")
     |> Base.encode64(padding: false)
   end
 
@@ -268,10 +268,8 @@ defmodule JumpAgent.WebhookService do
   end
 
   defp update_hubspot_webhook_settings(connection, app_id, settings, subscriptions) do
-    # First get current settings
     case HubSpotAPI.get_webhook_settings(connection, app_id) do
       {:ok, _current} ->
-        # Update with new settings
         body = Map.put(settings, :subscriptions, subscriptions)
 
         case HubSpotAPI.update_webhook_settings(connection, app_id, body) do
