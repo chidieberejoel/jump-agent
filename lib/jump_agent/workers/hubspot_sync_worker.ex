@@ -1,6 +1,6 @@
 defmodule JumpAgent.Workers.HubSpotSyncWorker do
   @moduledoc """
-  Syncs contacts and notes from HubSpot and creates embeddings for RAG.
+  Syncs contacts and notes from HubSpot, creates embeddings for RAG, and triggers instruction processing.
   """
 
   use Oban.Worker, queue: :sync
@@ -49,8 +49,47 @@ defmodule JumpAgent.Workers.HubSpotSyncWorker do
     user = HubSpot.get_connection_user(connection)
 
     Enum.each(contacts, fn contact ->
+      # Check if this contact already has an embedding
+      existing_embedding = AI.VectorSearch.find_by_source(user.id, "hubspot_contact", contact["id"])
+      is_new_contact = is_nil(existing_embedding)
+
+      # Always create/update embedding
       create_contact_embedding(user, contact)
+
+      # Trigger instructions for new contacts
+      if is_new_contact do
+        trigger_contact_instructions(user, contact, "hubspot_contact_created")
+      else
+        # For existing contacts, check if it was updated recently
+        if recently_updated?(contact) do
+          trigger_contact_instructions(user, contact, "hubspot_contact_updated")
+        end
+      end
     end)
+  end
+
+  defp trigger_contact_instructions(user, contact, event_type) do
+    props = contact["properties"] || %{}
+
+    # Extract contact data for instruction processing
+    contact_data = %{
+      "contact_id" => contact["id"],
+      "email" => props["email"],
+      "first_name" => props["firstname"],
+      "last_name" => props["lastname"],
+      "full_name" => build_full_name(props),
+      "company" => props["company"],
+      "phone" => props["phone"],
+      "job_title" => props["jobtitle"],
+      "lifecycle_stage" => props["lifecyclestage"],
+      "created_at" => contact["createdAt"],
+      "updated_at" => contact["updatedAt"],
+      "properties" => props
+    }
+
+    # Process external event to trigger any matching instructions
+    Logger.info("Processing #{event_type} for instruction triggers")
+    AI.process_external_event(user, event_type, contact_data)
   end
 
   defp create_contact_embedding(user, contact) do
@@ -149,6 +188,13 @@ defmodule JumpAgent.Workers.HubSpotSyncWorker do
     end
   end
 
+  defp build_full_name(props) do
+    [props["firstname"], props["lastname"]]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+    |> String.trim()
+  end
+
   defp parse_hubspot_date(timestamp) when is_integer(timestamp) do
     DateTime.from_unix!(timestamp, :millisecond)
   end
@@ -159,4 +205,15 @@ defmodule JumpAgent.Workers.HubSpotSyncWorker do
     end
   end
   defp parse_hubspot_date(_), do: DateTime.utc_now()
+
+  defp recently_updated?(contact) do
+    # Consider a contact recently updated if it was modified in the last hour
+    case contact["updatedAt"] do
+      nil -> false
+      updated_at ->
+        updated_datetime = parse_hubspot_date(updated_at)
+        threshold = DateTime.add(DateTime.utc_now(), -3600, :second) # 1 hour ago
+        DateTime.compare(updated_datetime, threshold) == :gt
+    end
+  end
 end

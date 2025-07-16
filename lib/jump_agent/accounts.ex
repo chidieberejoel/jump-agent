@@ -1,4 +1,3 @@
-# Fix 1: Update lib/jump_agent/accounts.ex to remove duplicate function and fix token handling
 defmodule JumpAgent.Accounts do
   @moduledoc """
   The Accounts context.
@@ -41,6 +40,10 @@ defmodule JumpAgent.Accounts do
   """
   def get_user_by_email(email) when is_binary(email) do
     Repo.get_by(User, email: email)
+  end
+
+  def get_user_by_calendar_channel_id(channel_id) when is_binary(channel_id) do
+    Repo.get_by(User, calendar_channel_id: channel_id)
   end
 
   @doc """

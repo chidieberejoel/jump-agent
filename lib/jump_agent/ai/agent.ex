@@ -360,16 +360,109 @@ defmodule JumpAgent.AI.Agent do
   defp matches_condition?(actual, expected), do: actual == expected
 
   defp build_instruction_prompt(instruction, event_data) do
+    # Build more specific prompts based on trigger type
+    base_prompt = """
+    You are processing an automated instruction triggered by an event.
+
+    INSTRUCTION: #{instruction.instruction}
+
+    EVENT TYPE: #{instruction.trigger_type}
     """
-    Execute the following instruction based on the triggered event:
 
-    Instruction: #{instruction.instruction}
+    case instruction.trigger_type do
+      "email_received" ->
+        base_prompt <> """
 
-    Event Type: #{instruction.trigger_type}
-    Event Data: #{Jason.encode!(event_data, pretty: true)}
+        EMAIL DATA:
+        - From: #{event_data["from"]}
+        - Subject: #{event_data["subject"]}
+        - Content Preview: #{String.slice(event_data["content"] || "", 0, 200)}...
+        - Date: #{event_data["date"]}
 
-    Please take the appropriate action based on this instruction and event.
-    """
+        You have access to these tools:
+        - search_information: Search your knowledge base
+        - send_email: Send emails
+        - create_contact: Create a HubSpot contact
+        - add_hubspot_note: Add notes to HubSpot contacts
+
+        Execute the instruction using the appropriate tools based on the email data above.
+        """
+
+      "calendar_event_created" ->
+        base_prompt <> """
+
+        CALENDAR EVENT DATA:
+        - Title: #{event_data["summary"]}
+        - Start: #{event_data["start"]}
+        - End: #{event_data["end"]}
+        - Location: #{event_data["location"] || "Not specified"}
+        - Attendees: #{format_attendees(event_data["attendees"])}
+
+        Note: When sending emails to attendees, exclude any attendee marked as "self": true
+
+        You have access to these tools:
+        - send_email: Send emails to attendees
+        - create_calendar_event: Create calendar events
+
+        Execute the instruction using the appropriate tools based on the event data above.
+        """
+
+      "hubspot_contact_created" ->
+        base_prompt <> """
+
+        NEW CONTACT DATA:
+        - Name: #{event_data["full_name"]}
+        - Email: #{event_data["email"]}
+        - Company: #{event_data["company"] || "Not specified"}
+        - Phone: #{event_data["phone"] || "Not specified"}
+
+        You have access to these tools:
+        - send_email: Send emails
+        - add_hubspot_note: Add notes to contacts
+        - create_calendar_event: Schedule meetings
+
+        Execute the instruction using the appropriate tools based on the contact data above.
+        """
+
+      "hubspot_contact_updated" ->
+        base_prompt <> """
+
+        UPDATED CONTACT DATA:
+        - Name: #{event_data["full_name"]}
+        - Email: #{event_data["email"]}
+        - Company: #{event_data["company"] || "Not specified"}
+        - Changed Fields: Check the properties in the data
+
+        Full contact properties: #{Jason.encode!(event_data["properties"], pretty: true)}
+
+        You have access to these tools:
+        - send_email: Send emails
+        - add_hubspot_note: Add notes to contacts
+
+        Execute the instruction using the appropriate tools based on the contact update above.
+        """
+
+      _ ->
+        base_prompt <> """
+
+        EVENT DATA:
+        #{Jason.encode!(event_data, pretty: true)}
+
+        Please take the appropriate action based on this instruction and event.
+        Use any available tools as needed to complete the instruction.
+        """
+    end
+  end
+
+  defp format_attendees(nil), do: "None"
+  defp format_attendees([]), do: "None"
+  defp format_attendees(attendees) do
+    attendees
+    |> Enum.map(fn a ->
+      self_indicator = if a["self"], do: " (you)", else: ""
+      "#{a["email"]} - #{a["display_name"] || "No name"}#{self_indicator}"
+    end)
+    |> Enum.join("\n  ")
   end
 
   defp format_error_message(:no_api_key) do

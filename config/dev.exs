@@ -87,10 +87,8 @@ config :langchain,
 
 # Token encryption key - generate with: :crypto.strong_rand_bytes(32) |> Base.encode64()
 # Example key (DO NOT USE IN PRODUCTION):
-config :jump_agent, :token_encryption_key,
-  (System.get_env("TOKEN_ENCRYPTION_KEY") && Base.decode64!(System.get_env("TOKEN_ENCRYPTION_KEY"))) ||
-  Base.decode64!("QE3RmNXk9ooICesIbmwN2Ixy1bJMTKstE8UuDo+9Crc=")
-
+token_key = System.get_env("TOKEN_ENCRYPTION_KEY", "QE3RmNXk9ooICesIbmwN2Ixy1bJMTKstE8UuDo+9Crc=")
+config :jump_agent, :token_encryption_key, Base.decode64!(token_key)
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"

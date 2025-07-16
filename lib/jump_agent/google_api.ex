@@ -82,6 +82,23 @@ defmodule JumpAgent.GoogleAPI do
   end
 
   @doc """
+  List history of changes to Gmail messages.
+  Used for incremental sync after receiving a webhook notification.
+  """
+  def list_history(user, start_history_id, opts \\ []) do
+    default_opts = [
+      startHistoryId: start_history_id,
+      labelId: "INBOX",
+      maxResults: 100
+    ]
+
+    query_opts = Keyword.merge(default_opts, opts)
+    query = URI.encode_query(query_opts)
+
+    gmail_request(user, :get, "/users/me/history?#{query}")
+  end
+
+  @doc """
   Watch for changes to Gmail messages.
   """
   def watch_gmail(user, topic_name, label_ids \\ ["INBOX"]) do
