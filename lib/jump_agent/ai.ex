@@ -200,29 +200,68 @@ defmodule JumpAgent.AI do
   Creates or updates a document embedding using Langchain.
   """
   def upsert_document_embedding(user, attrs) do
+    # Default to lenient mode for backward compatibility
+    upsert_document_with_optional_embedding(user, attrs)
+  end
+
+  @doc """
+  Creates or updates a document with optional embedding (lenient mode).
+  Always saves the document, generates embedding if possible.
+  """
+  def upsert_document_with_optional_embedding(user, attrs) do
     attrs = Map.put(attrs, :user_id, user.id)
 
-    # Generate embedding if content is provided but embedding is not
-    attrs =
-      if Map.has_key?(attrs, :content) && !Map.has_key?(attrs, :embedding) do
-        # Use Langchain's embedding service
-        case EmbeddingService.generate_embedding(attrs.content) do
-          {:ok, embedding} -> Map.put(attrs, :embedding, embedding)
-          {:error, reason} ->
-            Logger.warning("Failed to generate embedding for document: #{inspect(reason)}")
-            # Continue without embedding - the document will be saved but won't be searchable
-            attrs
-        end
-      else
-        attrs
-      end
+    # First, save the document
+    with {:ok, document} <- save_document(user, attrs),
+         {:ok, updated_document} <- try_generate_embedding(document, attrs) do
+      {:ok, updated_document}
+    else
+      {:embedding_failed, document} ->
+        # Document saved successfully, but embedding failed
+        schedule_embedding_retry(document)
+        {:ok, document}
+      {:error, reason} ->
+        # Critical failure - document couldn't be saved
+        Logger.error("Failed to save document: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
 
-    %DocumentEmbedding{}
-    |> DocumentEmbedding.changeset(attrs)
-    |> Repo.insert(
-         on_conflict: {:replace_all_except, [:id, :inserted_at]},
-         conflict_target: [:user_id, :source_type, :source_id]
-       )
+  @doc """
+  Creates or updates a document requiring embedding (strict mode).
+  Transaction-based - only saves if embedding succeeds.
+  Not needed for now
+  """
+  def upsert_document_with_required_embedding(user, attrs) do
+    attrs = Map.put(attrs, :user_id, user.id)
+
+    Multi.new()
+    |> Multi.run(:generate_embedding, fn _repo, _changes ->
+      if should_generate_embedding?(attrs) do
+        EmbeddingService.generate_embedding(attrs.content)
+      else
+        {:ok, Map.get(attrs, :embedding)}
+      end
+    end)
+    |> Multi.insert_or_update(:document, fn %{generate_embedding: embedding} ->
+      attrs_with_embedding =
+        attrs
+        |> Map.put(:embedding, embedding)
+        |> Map.put(:embedding_status, "complete")
+        |> Map.put(:embedding_generated_at, DateTime.utc_now())
+
+      build_document_changeset(user.id, attrs_with_embedding)
+    end)
+    |> Repo.transaction()
+    |> case do
+         {:ok, %{document: document}} ->
+           {:ok, document}
+         {:error, :generate_embedding, reason, _} ->
+           Logger.error("Embedding generation failed: #{inspect(reason)}")
+           {:error, {:embedding_failed, reason}}
+         {:error, operation, reason, _} ->
+           {:error, {operation, reason}}
+       end
   end
 
   @doc """
@@ -295,5 +334,196 @@ defmodule JumpAgent.AI do
       active_tasks: tasks,
       user_id: conversation.user_id
     }
+  end
+
+  @doc """
+  Lists documents that need embedding generation or retry.
+  """
+  def list_documents_needing_embeddings(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+    retry_after = Keyword.get(opts, :retry_after_minutes, 60)
+
+    retry_threshold = DateTime.add(DateTime.utc_now(), -retry_after * 60, :second)
+
+    DocumentEmbedding
+    |> where([d], is_nil(d.embedding))
+    |> where([d], d.embedding_status in ["pending", "failed"])
+    |> where([d],
+         d.embedding_status == "pending" or
+         (d.embedding_status == "failed" and d.embedding_failed_at < ^retry_threshold)
+       )
+    |> where([d], d.embedding_retry_count < 5)
+    |> order_by([d], asc: d.embedding_retry_count, asc: d.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc """
+  Manually retry embedding generation for a document.
+  """
+  def retry_document_embedding(document_id) do
+    with %DocumentEmbedding{} = document <- Repo.get(DocumentEmbedding, document_id),
+         {:ok, embedding} <- EmbeddingService.generate_embedding(document.content) do
+      update_document_with_embedding(document, embedding)
+    else
+      nil ->
+        {:error, :document_not_found}
+      {:error, reason} ->
+        document = Repo.get!(DocumentEmbedding, document_id)
+
+        if document.embedding_retry_count >= 4 do
+          # Mark as permanently failed after 5 attempts
+          document
+          |> DocumentEmbedding.changeset(%{
+            embedding_status: "permanently_failed",
+            embedding_error: format_error(reason),
+            embedding_failed_at: DateTime.utc_now(),
+            embedding_retry_count: document.embedding_retry_count + 1
+          })
+          |> Repo.update()
+        else
+          update_document_embedding_failed(document, reason)
+          schedule_embedding_retry(document)
+          {:error, reason}
+        end
+    end
+  end
+
+  @doc """
+  Gets statistics about document embeddings for a user.
+  """
+  def get_embedding_statistics(user) do
+    stats =
+      DocumentEmbedding
+      |> where([d], d.user_id == ^user.id)
+      |> group_by([d], d.embedding_status)
+      |> select([d], {d.embedding_status, count(d.id)})
+      |> Repo.all()
+      |> Enum.into(%{})
+
+    %{
+      total: Map.values(stats) |> Enum.sum(),
+      complete: Map.get(stats, "complete", 0),
+      pending: Map.get(stats, "pending", 0),
+      failed: Map.get(stats, "failed", 0),
+      permanently_failed: Map.get(stats, "permanently_failed", 0)
+    }
+  end
+
+  # Private helper functions
+
+  defp save_document(user, attrs) do
+    attrs = prepare_document_attrs(attrs)
+
+    build_document_changeset(user.id, attrs)
+    |> Repo.insert(
+         on_conflict: {:replace_all_except, [:id, :inserted_at]},
+         conflict_target: [:user_id, :source_type, :source_id]
+       )
+  end
+
+  defp prepare_document_attrs(attrs) do
+    if should_generate_embedding?(attrs) do
+      attrs
+      |> Map.put(:embedding_status, "pending")
+      |> Map.delete(:embedding) # Don't save nil embedding
+    else
+      attrs
+      |> Map.put(:embedding_status, "complete")
+      |> Map.put(:embedding_generated_at, DateTime.utc_now())
+    end
+  end
+
+  defp should_generate_embedding?(attrs) do
+    Map.has_key?(attrs, :content) &&
+      !Map.has_key?(attrs, :embedding) &&
+      String.trim(attrs.content || "") != ""
+  end
+
+  defp try_generate_embedding(document, original_attrs) do
+    if should_generate_embedding?(original_attrs) do
+      case EmbeddingService.generate_embedding(document.content) do
+        {:ok, embedding} ->
+          update_document_with_embedding(document, embedding)
+
+        {:error, reason} ->
+          Logger.warning("Failed to generate embedding for document #{document.id}: #{inspect(reason)}")
+          update_document_embedding_failed(document, reason)
+          {:embedding_failed, document}
+      end
+    else
+      {:ok, document}
+    end
+  end
+
+  defp update_document_with_embedding(document, embedding) do
+    document
+    |> DocumentEmbedding.changeset(%{
+      embedding: embedding,
+      embedding_status: "complete",
+      embedding_generated_at: DateTime.utc_now(),
+      embedding_error: nil,
+      embedding_failed_at: nil
+    })
+    |> Repo.update()
+  end
+
+  defp update_document_embedding_failed(document, reason) do
+    document
+    |> DocumentEmbedding.changeset(%{
+      embedding_status: "failed",
+      embedding_error: format_error(reason),
+      embedding_failed_at: DateTime.utc_now(),
+      embedding_retry_count: (document.embedding_retry_count || 0) + 1
+    })
+    |> Repo.update!()
+  end
+
+  defp format_error(reason) do
+    case reason do
+      {:api_error, message} -> "API Error: #{message}"
+      :no_api_key -> "OpenAI API key not configured"
+      :rate_limited -> "Rate limit exceeded"
+      :timeout -> "Request timeout"
+      other -> inspect(other)
+    end
+    |> String.slice(0, 500) # Limit error message length
+  end
+
+  defp build_document_changeset(user_id, attrs) do
+    case find_existing_document(user_id, attrs[:source_type], attrs[:source_id]) do
+      nil -> %DocumentEmbedding{}
+      existing -> existing
+    end
+    |> DocumentEmbedding.changeset(attrs)
+  end
+
+  defp find_existing_document(user_id, source_type, source_id) do
+    DocumentEmbedding
+    |> where([d], d.user_id == ^user_id)
+    |> where([d], d.source_type == ^source_type)
+    |> where([d], d.source_id == ^source_id)
+    |> Repo.one()
+  end
+
+  defp schedule_embedding_retry(document) do
+    delay = calculate_retry_delay(document)
+
+    %{document_id: document.id}
+    |> JumpAgent.Workers.EmbeddingRetryWorker.new(
+         schedule_in: delay,
+         max_attempts: 5
+       )
+    |> Oban.insert()
+
+    Logger.info("Scheduled embedding retry for document #{document.id} in #{delay} seconds")
+  end
+
+  defp calculate_retry_delay(document) do
+    # Exponential backoff: 1min, 2min, 4min, 8min, 16min
+    attempt = document.embedding_retry_count || 1
+    base_delay = 60
+
+    min(base_delay * :math.pow(2, attempt - 1), 960) |> round()
   end
 end

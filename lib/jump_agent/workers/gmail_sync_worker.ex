@@ -146,18 +146,18 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
       # Prepare content with metadata
       prepared_content = EmbeddingService.prepare_content(content, metadata)
 
-      # Create embedding - this will now handle failures gracefully
-      case AI.upsert_document_embedding(user, %{
+      # Use lenient mode - always save the email
+      case AI.upsert_document_with_optional_embedding(user, %{
         source_type: "gmail",
         source_id: email["id"],
         content: prepared_content,
         metadata: metadata,
         created_at_source: parse_email_date(email["internalDate"])
       }) do
-        {:ok, _embedding} ->
-          Logger.debug("Created embedding for email #{email["id"]}")
+        {:ok, embedding} ->
+          Logger.debug("Saved email #{email["id"]} with status: #{embedding.embedding_status}")
         {:error, reason} ->
-          Logger.warning("Failed to create embedding for email #{email["id"]}: #{inspect(reason)}")
+          Logger.error("Failed to save email #{email["id"]}: #{inspect(reason)}")
       end
     end
   end

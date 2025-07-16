@@ -84,10 +84,12 @@ config :jump_agent, Oban,
      # Process pending tasks every minute
      {"* * * * *", JumpAgent.Workers.TaskProcessorWorker},
      # Webhook maintenance every 6 hours
-     {"0 */6 * * *", JumpAgent.Workers.WebhookMaintenanceWorker}
+     {"0 */6 * * *", JumpAgent.Workers.WebhookMaintenanceWorker},
+     # Embedding maintenance every hour
+     {"0 * * * *", JumpAgent.Workers.EmbeddingMaintenanceWorker}
    ]}
   ],
-  queues: [default: 10, sync: 5, ai: 3, webhooks: 5, maintenance: 3]
+  queues: [default: 10, sync: 5, ai: 3, webhooks: 5, maintenance: 3, embeddings: 5]
 
 config :jump_agent, JumpAgent.Repo, types: JumpAgent.PostgrexTypes
 

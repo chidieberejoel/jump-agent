@@ -108,7 +108,7 @@ defmodule JumpAgent.Workers.HubSpotSyncWorker do
                     |> Enum.reject(&is_nil/1)
                     |> Enum.join(" ")
 
-    if content_parts != "" do
+    if is_binary(content_parts) && String.trim(content_parts) != "" do
       prepared_content = EmbeddingService.prepare_content(content_parts, %{
         "name" => "#{props["firstname"]} #{props["lastname"]}",
         "email" => props["email"],

@@ -113,7 +113,7 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
     content = build_event_content(event)
     metadata = extract_event_metadata(event)
 
-    if content && content != "" do
+    if is_binary(content) && String.trim(content) != "" do
       prepared_content = EmbeddingService.prepare_content(content, metadata)
 
       case AI.upsert_document_embedding(user, %{
@@ -148,7 +148,10 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
   defp extract_event_metadata(event) do
     %{
       "title" => event["summary"] || "(No Title)",
-      "date" => format_event_date(event),
+      "description" => truncate_string(event["description"], 500),
+      "date" => format_event_date(event["start"]),
+      "start_time" => format_event_date(event["start"]),
+      "end_time" => format_event_date(event["end"]),
       "location" => event["location"],
       "organizer" => extract_organizer_email(event),
       "attendee_count" => length(event["attendees"] || []),
@@ -202,21 +205,16 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
     |> Enum.join(", ")
   end
 
-  defp format_event_date(event) do
-    case event do
-      %{"start" => %{"dateTime" => datetime}} ->
-        format_datetime(datetime)
-      %{"start" => %{"date" => date}} ->
-        date
-      _ ->
-        nil
-    end
+  defp format_event_date(%{"dateTime" => datetime}) do
+    format_datetime(datetime)
   end
+  defp format_event_date(%{"date" => date}), do: date
+  defp format_event_date(_), do: nil
 
   defp format_datetime(datetime_string) do
     case DateTime.from_iso8601(datetime_string) do
       {:ok, datetime, _} ->
-        Calendar.strftime(datetime, "%B %d, %Y at %I:%M %p")
+        Timex.format!(datetime, "%B %d, %Y at %I:%M %p", :strftime)
       _ ->
         datetime_string
     end
@@ -228,7 +226,15 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
       _ -> DateTime.utc_now()
     end
   end
-  defp parse_event_date(_), do: DateTime.utc_now()
+
+  defp truncate_string(nil, _), do: nil
+  defp truncate_string(str, max_length) do
+    if String.length(str) > max_length do
+      String.slice(str, 0, max_length) <> "..."
+    else
+      str
+    end
+  end
 
   defp cancelled?(event) do
     event["status"] == "cancelled"
