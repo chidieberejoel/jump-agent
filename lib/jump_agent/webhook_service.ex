@@ -7,8 +7,7 @@ defmodule JumpAgent.WebhookService do
   alias JumpAgent.{GoogleAPI, HubSpotAPI, HubSpot}
   require Logger
 
-  # Only Gmail uses Pub/Sub topics
-  @gmail_topic "projects/#{System.get_env("GOOGLE_CLOUD_PROJECT_ID", "jump-agent")}/topics/gmail-push"
+  @gmail_topic "projects/#{Application.get_env(:jump_agent, :google_cloud_project_id)}/topics/gmail-push"
 
   # Watch duration in seconds (7 days - maximum allowed by Google)
   @watch_duration_seconds 7 * 24 * 60 * 60
@@ -55,6 +54,9 @@ defmodule JumpAgent.WebhookService do
   Calendar API doesn't use Pub/Sub - it sends notifications directly.
   """
   def setup_calendar_webhook(user, calendar_id \\ "primary") do
+    # Stop any existing calendar watch first
+    stop_calendar_webhook(user)
+
     webhook_url = webhook_url(:calendar)
 
     # Generate a unique channel ID for this watch
@@ -197,8 +199,24 @@ defmodule JumpAgent.WebhookService do
           Logger.info("Calendar webhook stopped for user #{user.id}")
           :ok
 
+        {:error, %{status: 404}} ->
+          # Channel doesn't exist on Google's side, just clear local data
+          JumpAgent.Accounts.update_user_webhook_info(user, %{
+            calendar_watch_expiration: nil,
+            calendar_channel_id: nil,
+            calendar_resource_id: nil
+          })
+          Logger.info("Calendar webhook not found on Google, cleared local data for user #{user.id}")
+          :ok
+
         {:error, reason} ->
           Logger.error("Failed to stop Calendar webhook for user #{user.id}: #{inspect(reason)}")
+          # Clear local data anyway to avoid stuck state
+          JumpAgent.Accounts.update_user_webhook_info(user, %{
+            calendar_watch_expiration: nil,
+            calendar_channel_id: nil,
+            calendar_resource_id: nil
+          })
           {:error, reason}
       end
     else

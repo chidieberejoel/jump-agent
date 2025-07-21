@@ -1,6 +1,7 @@
 defmodule JumpAgent.Workers.GmailSyncWorker do
   @moduledoc """
-  Syncs emails from Gmail, creates embeddings for RAG, and triggers instruction processing.
+  Syncs emails from Gmail and creates embeddings for RAG.
+  Also triggers instructions for new emails.
   """
 
   use Oban.Worker, queue: :sync
@@ -18,7 +19,7 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
         :ok
 
       user ->
-        sync_user_emails_from_history(user, history_id)
+        sync_new_emails_from_history(user, history_id)
     end
   end
 
@@ -31,6 +32,41 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
     :ok
   end
 
+  defp sync_new_emails_from_history(user, history_id) do
+    Logger.info("Syncing new emails for user #{user.id} from history #{history_id}")
+
+    # Get the user's last known history ID
+    last_history_id = user.gmail_history_id || "1"
+
+    # Fetch history changes since last sync
+    case GoogleAPI.gmail_request(user, :get, "/users/me/history",
+           query: [startHistoryId: last_history_id, historyTypes: "messageAdded"]) do
+      {:ok, %{"history" => history_items}} when is_list(history_items) ->
+        # Process each new message
+        Enum.each(history_items, fn item ->
+          if messages_added = item["messagesAdded"] do
+            Enum.each(messages_added, fn %{"message" => %{"id" => message_id}} ->
+              process_new_email(user, message_id)
+            end)
+          end
+        end)
+
+        # Update the user's history ID
+        if new_history_id = history_id do
+          Accounts.update_user_webhook_info(user, %{gmail_history_id: new_history_id})
+        end
+
+      {:ok, _} ->
+        # No new messages
+        Logger.debug("No new messages for user #{user.id}")
+
+      {:error, reason} ->
+        Logger.error("Failed to fetch Gmail history for user #{user.id}: #{inspect(reason)}")
+        # Fall back to regular sync
+        sync_user_emails(user)
+    end
+  end
+
   defp sync_user_emails(user) do
     Logger.info("Syncing Gmail for user #{user.id}")
 
@@ -39,27 +75,6 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
   rescue
     error ->
       Logger.error("Gmail sync error for user #{user.id}: #{inspect(error)}")
-  end
-
-  defp sync_user_emails_from_history(user, history_id) do
-    Logger.info("Syncing Gmail history for user #{user.id} from history ID: #{history_id}")
-
-    # Use history API to get changes since last sync
-    case GoogleAPI.list_history(user, history_id) do
-      {:ok, %{"history" => history_records}} when is_list(history_records) ->
-        Enum.each(history_records, fn record ->
-          if messages_added = record["messagesAdded"] do
-            Enum.each(messages_added, fn %{"message" => %{"id" => message_id}} ->
-              process_email(user, message_id, true)
-            end)
-          end
-        end)
-
-      {:error, reason} ->
-        Logger.error("Failed to sync Gmail history: #{inspect(reason)}")
-        # Fall back to regular sync
-        sync_user_emails(user)
-    end
   end
 
   defp sync_emails_page(user, page_token, processed_count) when processed_count >= 200 do
@@ -73,9 +88,9 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
 
     case GoogleAPI.list_emails(user, opts) do
       {:ok, %{"messages" => messages} = response} when is_list(messages) ->
-        # Process each email
+        # Process each email (without triggering instructions for bulk sync)
         Enum.each(messages, fn %{"id" => message_id} ->
-          process_email(user, message_id, false)
+          process_email(user, message_id, trigger_instructions: false)
         end)
 
         # Continue with next page if available
@@ -94,19 +109,26 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
     end
   end
 
-  defp process_email(user, message_id, is_new_email) do
+  defp process_new_email(user, message_id) do
+    # Process email with instruction triggering enabled
+    process_email(user, message_id, trigger_instructions: true)
+  end
+
+  defp process_email(user, message_id, opts \\ []) do
+    trigger_instructions = Keyword.get(opts, :trigger_instructions, false)
+
     # Check if we already have this email
     existing = AI.VectorSearch.find_by_source(user.id, "gmail", message_id)
 
-    if is_nil(existing) || is_new_email do
+    if is_nil(existing) do
       # Fetch full email details
       case GoogleAPI.get_email(user, message_id) do
         {:ok, email} ->
           # Create embedding
           create_email_embedding(user, email)
 
-          # Trigger instruction processing for new emails
-          if is_new_email || is_nil(existing) do
+          # Trigger instructions for new emails
+          if trigger_instructions do
             trigger_email_instructions(user, email)
           end
 
@@ -117,8 +139,10 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
   end
 
   defp trigger_email_instructions(user, email) do
+    metadata = extract_email_metadata(email)
+
     # Extract email data for instruction processing
-    email_data = %{
+    event_data = %{
       "message_id" => email["id"],
       "thread_id" => email["threadId"],
       "from" => extract_sender(email),
@@ -129,12 +153,16 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
       "snippet" => email["snippet"],
       "date" => parse_email_date(email["internalDate"]),
       "labels" => email["labelIds"] || [],
-      "has_attachments" => has_attachments?(email)
+      "has_attachments" => has_attachments?(email),
+      "received_at" => parse_email_date(email["internalDate"])  # Add timestamp for temporal check
     }
 
-    # Process external event to trigger any matching instructions
-    Logger.info("Processing email_received event for instruction triggers")
-    AI.process_external_event(user, "email_received", email_data)
+    # Log the trigger
+    Logger.info("Triggering email_received instructions for user #{user.id}, email from: #{metadata["from"]}")
+
+    # Process the email received event
+    # Pass the email date so instructions can check if they should apply
+    AI.process_external_event(user, "email_received", event_data)
   end
 
   defp create_email_embedding(user, email) do
@@ -146,18 +174,18 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
       # Prepare content with metadata
       prepared_content = EmbeddingService.prepare_content(content, metadata)
 
-      # Use lenient mode - always save the email
-      case AI.upsert_document_with_optional_embedding(user, %{
+      # Create embedding - this will now handle failures gracefully
+      case AI.upsert_document_embedding(user, %{
         source_type: "gmail",
         source_id: email["id"],
         content: prepared_content,
         metadata: metadata,
         created_at_source: parse_email_date(email["internalDate"])
       }) do
-        {:ok, embedding} ->
-          Logger.debug("Saved email #{email["id"]} with status: #{embedding.embedding_status}")
+        {:ok, _embedding} ->
+          Logger.debug("Created embedding for email #{email["id"]}")
         {:error, reason} ->
-          Logger.error("Failed to save email #{email["id"]}: #{inspect(reason)}")
+          Logger.warning("Failed to create embedding for email #{email["id"]}: #{inspect(reason)}")
       end
     end
   end
@@ -186,7 +214,15 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
   defp find_part_content(payload, mime_type) do
     cond do
       payload["mimeType"] == mime_type && payload["body"]["data"] ->
-        decode_base64_body(payload["body"]["data"])
+        case Base.url_decode64(payload["body"]["data"], padding: false) do
+          {:ok, decoded} -> decoded
+          {:error, _} ->
+            # Try with padding if the first attempt fails
+            case Base.url_decode64(payload["body"]["data"]) do
+              {:ok, decoded} -> decoded
+              {:error, _} -> nil
+            end
+        end
 
       payload["parts"] ->
         Enum.find_value(payload["parts"], fn part ->
@@ -195,18 +231,6 @@ defmodule JumpAgent.Workers.GmailSyncWorker do
 
       true ->
         nil
-    end
-  end
-
-  defp decode_base64_body(data) do
-    case Base.url_decode64(data, padding: false) do
-      {:ok, decoded} -> decoded
-      {:error, _} ->
-        # Try with padding if the first attempt fails
-        case Base.url_decode64(data) do
-          {:ok, decoded} -> decoded
-          {:error, _} -> nil
-        end
     end
   end
 

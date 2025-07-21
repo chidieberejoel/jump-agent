@@ -66,25 +66,48 @@ defmodule JumpAgent.AI.Agent do
   Processes a triggered instruction based on an external event.
   """
   def process_instruction_trigger(user, instruction, event_data) do
-    # Check if conditions match
-    if check_conditions(instruction.conditions, event_data) do
-      # Create a system conversation for this trigger
-      {:ok, conversation} = AI.create_conversation(user, %{
-        title: "Automated: #{instruction.trigger_type}",
-        context: %{
-          "instruction_id" => instruction.id,
-          "trigger_type" => instruction.trigger_type,
-          "event_data" => event_data
-        }
-      })
+    # Check if the event occurred after the instruction was created
+    if should_process_event?(instruction, event_data) do
+      # Check if conditions match
+      if check_conditions(instruction.conditions, event_data) do
+        # Create a system conversation for this trigger
+        {:ok, conversation} = AI.create_conversation(user, %{
+          title: "Automated: #{instruction.trigger_type}",
+          context: %{
+            "instruction_id" => instruction.id,
+            "trigger_type" => instruction.trigger_type,
+            "event_data" => event_data
+          }
+        })
 
-      # Process the instruction
-      system_message = build_instruction_prompt(instruction, event_data)
-      process_message(conversation, system_message)
+        # Process the instruction
+        system_message = build_instruction_prompt(instruction, event_data)
+        process_message(conversation, system_message)
+      end
+    else
+      Logger.debug("Skipping instruction #{instruction.id} - event occurred before instruction creation")
     end
   end
 
-  # Private functions
+  # Check if the event should be processed based on timing
+  defp should_process_event?(instruction, event_data) do
+    # Different event types use different timestamp fields
+    event_timestamp = get_event_timestamp(instruction.trigger_type, event_data)
+
+    case event_timestamp do
+      nil ->
+        # If no timestamp, process it (manual triggers, etc.)
+        true
+
+      event_datetime when is_struct(event_datetime, DateTime) ->
+        # Compare event time with instruction creation time
+        DateTime.compare(event_datetime, instruction.inserted_at) == :gt
+
+      _ ->
+        # If we can't determine timing, skip for safety
+        false
+    end
+  end
 
   defp process_with_langchain(messages, functions, user) do
     case LangchainService.process_message_with_tools(messages, functions) do
@@ -293,30 +316,39 @@ defmodule JumpAgent.AI.Agent do
     messages ++ [user_msg]
   end
 
-    defp convert_to_langchain_message(%{role: "system", content: content}) when is_binary(content) do
-      Message.new_system!(content)
-    end
+  defp convert_to_langchain_message(%{role: "system", content: content}) when is_binary(content) do
+    Message.new_system!(content)
+  end
 
-    defp convert_to_langchain_message(%{role: "user", content: content}) when is_binary(content) do
-      Message.new_user!(content)
-    end
+  defp convert_to_langchain_message(%{role: "user", content: content}) when is_binary(content) do
+    Message.new_user!(content)
+  end
 
-    defp convert_to_langchain_message(%{role: "assistant", content: content}) when is_binary(content) do
-      Message.new_assistant!(content)
-    end
+  defp convert_to_langchain_message(%{role: "assistant", content: content}) when is_binary(content) do
+    Message.new_assistant!(content)
+  end
 
-    defp convert_to_langchain_message(%JumpAgent.AI.Message{role: role, content: content}) do
-      convert_to_langchain_message(%{role: role, content: content})
-    end
+  defp convert_to_langchain_message(%JumpAgent.AI.Message{role: role, content: content}) do
+    convert_to_langchain_message(%{role: role, content: content})
+  end
 
-    defp convert_to_langchain_message(%{"role" => role, "content" => content}) do
-      convert_to_langchain_message(%{role: role, content: content})
-    end
+  defp convert_to_langchain_message(%{"role" => role, "content" => content}) do
+    convert_to_langchain_message(%{role: role, content: content})
+  end
 
-    defp convert_to_langchain_message(other) do
-      Logger.error("Cannot convert to langchain message: #{inspect(other)}")
-      Message.new_user!("Error: Invalid message format")
-    end
+  defp convert_to_langchain_message(other) do
+    Logger.error("Cannot convert to langchain message: #{inspect(other)}")
+    Message.new_user!("Error: Invalid message format")
+  end
+
+  # Extract timestamp based on event type
+  defp get_event_timestamp("email_received", event_data), do: event_data["received_at"]
+  defp get_event_timestamp("calendar_event_created", event_data), do: event_data["created_at"]
+  defp get_event_timestamp("hubspot_contact_created", event_data), do: event_data["created_at"]
+  defp get_event_timestamp("hubspot_contact_updated", event_data), do: event_data["updated_at"]
+  defp get_event_timestamp("manual", _), do: nil  # Manual triggers always execute
+  defp get_event_timestamp("scheduled", _), do: nil  # Scheduled triggers always execute
+  defp get_event_timestamp(_, _), do: nil
 
   defp build_document_context(docs) do
     docs
@@ -341,7 +373,7 @@ defmodule JumpAgent.AI.Agent do
   end
   defp format_source(type, _), do: String.capitalize(type)
 
-  defp check_conditions(conditions, event_data) when conditions == %{}, do: true
+  defp check_conditions(conditions, event_data) when map_size(conditions) == 0, do: true
   defp check_conditions(conditions, event_data) do
     Enum.all?(conditions, fn {key, expected_value} ->
       actual_value = get_in(event_data, String.split(key, "."))

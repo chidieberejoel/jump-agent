@@ -46,3 +46,7 @@ npm-debug.log
 # Ignore macOS system files
 .DS_Store
 .DS_Store?
+
+# Ignore IDE project files
+.idea/
+*.iml
