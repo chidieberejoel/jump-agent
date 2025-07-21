@@ -10,6 +10,18 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
   require Logger
 
   @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"user_id" => user_id, "webhook_notification" => true}}) do
+    case Accounts.get_user(user_id) do
+      nil ->
+        Logger.warning("User not found: #{user_id}")
+        :ok
+
+      user ->
+        # For webhook notifications, only sync recent events and trigger instructions
+        sync_recent_calendar_events(user, "primary")
+    end
+  end
+
   def perform(%Oban.Job{args: %{"user_id" => user_id}}) do
     case Accounts.get_user(user_id) do
       nil ->
@@ -17,7 +29,7 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
         :ok
 
       user ->
-        sync_user_calendars(user)
+        sync_user_calendars(user, :bulk_sync)
     end
   end
 
@@ -25,22 +37,50 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
     # Get all users with Google tokens
     users = Accounts.list_users_with_google_tokens()
 
-    Enum.each(users, &sync_user_calendars/1)
+    Enum.each(users, fn user ->
+      sync_user_calendars(user, :bulk_sync)
+    end)
 
     :ok
   end
 
-  defp sync_user_calendars(user) do
-    Logger.info("Syncing calendars for user #{user.id}")
+  defp sync_user_calendars(user, mode \\ :webhook_sync) do
+    Logger.info("Syncing calendars for user #{user.id} (mode: #{mode})")
 
     # Get primary calendar events
-    sync_calendar_events(user, "primary")
+    sync_calendar_events(user, "primary", mode)
   rescue
     error ->
       Logger.error("Calendar sync error for user #{user.id}: #{inspect(error)}")
   end
 
-  defp sync_calendar_events(user, calendar_id) do
+  # Add this new function for webhook-triggered syncs:
+  defp sync_recent_calendar_events(user, calendar_id) do
+    # Only get events from the last hour for webhook notifications
+    now = DateTime.utc_now()
+    time_min = DateTime.add(now, -3600, :second) |> DateTime.to_iso8601()  # 1 hour ago
+    time_max = DateTime.add(now, 3600, :second) |> DateTime.to_iso8601()   # 1 hour future
+
+    opts = [
+      timeMin: time_min,
+      timeMax: time_max,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 50
+    ]
+
+    case GoogleAPI.list_calendar_events(user, calendar_id, opts) do
+      {:ok, %{"items" => events}} when is_list(events) ->
+        Enum.each(events, fn event ->
+          process_calendar_event(user, event, :webhook_sync)
+        end)
+
+      {:error, reason} ->
+        Logger.error("Calendar sync failed for user #{user.id}: #{inspect(reason)}")
+    end
+  end
+
+  defp sync_calendar_events(user, calendar_id, mode \\ :bulk_sync) do
     # Get events for the next 30 days
     now = DateTime.utc_now()
     time_min = DateTime.to_iso8601(now)
@@ -57,7 +97,7 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
     case GoogleAPI.list_calendar_events(user, calendar_id, opts) do
       {:ok, %{"items" => events}} when is_list(events) ->
         Enum.each(events, fn event ->
-          process_calendar_event(user, event)
+          process_calendar_event(user, event, mode)
         end)
 
       {:error, :unauthorized} ->
@@ -68,7 +108,7 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
     end
   end
 
-  defp process_calendar_event(user, event) do
+  defp process_calendar_event(user, event, mode \\ :bulk_sync) do
     event_id = event["id"]
 
     # Check if this is a new event by looking for existing embedding
@@ -78,13 +118,16 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
     # Always update or create the embedding
     create_event_embedding(user, event)
 
-    # Trigger instructions only for new events
-    if is_new_event && not cancelled?(event) do
+    # Trigger instructions only for new events AND only in webhook mode
+    if is_new_event && not cancelled?(event) && mode == :webhook_sync do
       trigger_calendar_instructions(user, event)
     end
   end
 
   defp trigger_calendar_instructions(user, event) do
+    # Parse the created timestamp for temporal check
+    created_at = parse_event_date(event["created"])
+
     # Extract event data for instruction processing
     event_data = %{
       "event_id" => event["id"],
@@ -100,7 +143,8 @@ defmodule JumpAgent.Workers.CalendarSyncWorker do
       "updated" => event["updated"],
       "html_link" => event["htmlLink"],
       "is_recurring" => event["recurringEventId"] != nil,
-      "is_all_day" => is_all_day_event?(event)
+      "is_all_day" => is_all_day_event?(event),
+      "created_at" => created_at  # Add parsed DateTime for temporal check
     }
 
     # Process external event to trigger any matching instructions

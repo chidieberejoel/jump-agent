@@ -61,6 +61,10 @@ defmodule JumpAgent.Workers.HubSpotContactSyncWorker do
   defp trigger_contact_instructions(user, contact, event_type) do
     props = contact["properties"] || %{}
 
+    # Parse timestamps for temporal checks
+    created_at = parse_hubspot_date(contact["createdAt"])
+    updated_at = parse_hubspot_date(contact["updatedAt"])
+
     # Extract contact data for instruction processing
     contact_data = %{
       "contact_id" => contact["id"],
@@ -73,8 +77,10 @@ defmodule JumpAgent.Workers.HubSpotContactSyncWorker do
       "job_title" => props["jobtitle"],
       "lifecycle_stage" => props["lifecyclestage"],
       "lead_status" => props["hs_lead_status"],
-      "created_at" => contact["createdAt"],
-      "updated_at" => contact["updatedAt"],
+      "created_at" => created_at,  # DateTime object for temporal check
+      "updated_at" => updated_at,  # DateTime object for temporal check
+      "created_at_raw" => contact["createdAt"],  # Keep raw value too
+      "updated_at_raw" => contact["updatedAt"],  # Keep raw value too
       "owner_id" => props["hubspot_owner_id"],
       "last_activity_date" => props["notes_last_updated"],
       "properties" => props,

@@ -132,8 +132,8 @@ defmodule JumpAgentWeb.WebhookController do
       user ->
         # Only process if not a sync message
         if resource_state != "sync" do
-          # Queue calendar sync job
-          %{user_id: user.id}
+          # Queue calendar sync job with webhook flag
+          %{user_id: user.id, webhook_notification: true}
           |> JumpAgent.Workers.CalendarSyncWorker.new()
           |> Oban.insert()
         end
